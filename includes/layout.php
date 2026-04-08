@@ -61,7 +61,6 @@ function layoutHeader(string $pageTitle = '', string $extraHead = ''): void {
     $nav .= navItem('fa-box-open',     'Products',        $appUrl . '/admin/products.php',  $pageTitle);
     $nav .= navItem('fa-users',        'Cashiers',        $appUrl . '/admin/cashiers.php',  $pageTitle);
     $nav .= navItem('fa-list-check',   'All Orders',      $appUrl . '/admin/orders.php',    $pageTitle);
-    $nav .= navItem('fa-rotate-left',  'Refund Requests', $appUrl . '/admin/refunds.php',   $pageTitle, pendingRefundCount());
     $nav .= navItem('fa-star',         'Feedback',        $appUrl . '/admin/feedback.php',  $pageTitle);
     $nav .= '<div class="nav-section-label">System</div>';
   } elseif ($role === ROLE_CASHIER) {
@@ -69,7 +68,7 @@ function layoutHeader(string $pageTitle = '', string $extraHead = ''): void {
     $nav .= navItem('fa-chart-simple', 'Dashboard',   $appUrl . '/cashier/dashboard.php',  $pageTitle);
     $nav .= navItem('fa-store',        'Walk-in POS', $appUrl . '/cashier/walkin.php',      $pageTitle);
     $nav .= navItem('fa-clock',        'Pre-orders',  $appUrl . '/cashier/preorders.php',   $pageTitle, pendingPreorderCount());
-    $nav .= navItem('fa-receipt',      'Last Receipt', $appUrl . '/cashier/receipt.php',     $pageTitle);
+    $nav .= navItem('fa-clock-rotate-left', 'Order History', $appUrl . '/cashier/orders.php',    $pageTitle);
     $nav .= '<div class="nav-section-label">Session</div>';
   } elseif ($role === ROLE_STUDENT) {
     $nav .= '<div class="nav-section-label">My Account</div>';
