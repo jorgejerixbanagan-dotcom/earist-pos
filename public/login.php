@@ -100,6 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       --land-dim: rgba(26, 16, 8, 0.28);
     }
 
+    /* Hide Microsoft Edge's native password reveal and clear icons */
+    input::-ms-reveal,
+    input::-ms-clear {
+      display: none;
+    }
+
     html {
       font-size: 16px;
     }
@@ -454,6 +460,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.12);
     }
 
+    /* Password Toggle Wrapper */
+    .password-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .password-wrapper .field-input {
+      padding-right: 40px;
+      /* Prevent typing text under the eye icon */
+    }
+
+    .btn-toggle-password {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      color: var(--land-dim);
+      cursor: pointer;
+      font-size: 0.95rem;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s;
+    }
+
+    .btn-toggle-password:hover {
+      color: var(--land-text);
+    }
+
     /* Submit button */
     .btn-submit {
       width: 100%;
@@ -609,8 +646,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
           <div class="field-group">
             <label class="field-label">Password</label>
-            <input type="password" name="password" class="field-input"
-              placeholder="Your password" required autocomplete="current-password">
+            <div class="password-wrapper">
+              <input type="password" name="password" id="login-password" class="field-input"
+                placeholder="Your password" required autocomplete="current-password">
+              <button type="button" class="btn-toggle-password" onclick="togglePassword('login-password', this)" tabindex="-1">
+                <i class="fa-solid fa-eye"></i>
+              </button>
+            </div>
           </div>
 
           <button type="submit" class="btn-submit">
@@ -649,6 +691,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         placeholder: 'Your admin username'
       },
     };
+
+    function togglePassword(inputId, btn) {
+      const input = document.getElementById(inputId);
+      const icon = btn.querySelector('i');
+
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+      } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+      }
+    }
 
     function selectRole(role) {
       document.getElementById('role-input').value = role;
