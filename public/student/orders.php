@@ -3,6 +3,30 @@ require_once __DIR__ . '/../../config/init.php';
 requireRole(ROLE_STUDENT);
 $db = Database::getInstance();
 
+// ── AJAX endpoint: return order items as JSON ─────────────────
+if (isset($_GET['get_order_items'])) {
+  header('Content-Type: application/json');
+  
+  $oid  = (int)$_GET['get_order_items'];
+  // Verify order belongs to current student
+  $chk = $db->prepare("SELECT id FROM orders WHERE id=? AND student_id=?");
+  $chk->execute([$oid, currentUserId()]);
+  if (!$chk->fetch()) {
+    echo json_encode(['items' => []]);
+    exit;
+  }
+
+  $stmt = $db->prepare(
+    "SELECT od.product_id, p.name, p.image_path, od.customization_note AS note
+     FROM order_details od
+     JOIN products p ON od.product_id = p.id
+     WHERE od.order_id = ?"
+  );
+  $stmt->execute([$oid]);
+  echo json_encode(['items' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+  exit;
+}
+
 // ── Handle feedback submission ────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_feedback'])) {
   verifyCsrf();
@@ -487,28 +511,6 @@ layoutHeader('My Orders');
   });
 </script>
 
-<?php
-// ── AJAX endpoint: return order items as JSON ─────────────────
-if (isset($_GET['get_order_items'])) {
-  $oid  = (int)$_GET['get_order_items'];
-  // Verify order belongs to current student
-  $chk = $db->prepare("SELECT id FROM orders WHERE id=? AND student_id=?");
-  $chk->execute([$oid, currentUserId()]);
-  if (!$chk->fetch()) {
-    echo json_encode(['items' => []]);
-    exit;
-  }
-
-  $stmt = $db->prepare(
-    "SELECT od.product_id, p.name, p.image_path, od.customization_note AS note
-     FROM order_details od
-     JOIN products p ON od.product_id = p.id
-     WHERE od.order_id = ?"
-  );
-  $stmt->execute([$oid]);
-  echo json_encode(['items' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
-  exit;
-}
-
-layoutFooter();
+<?php 
+layoutFooter(); 
 ?>
