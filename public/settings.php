@@ -1,0 +1,378 @@
+<?php
+/**
+ * settings.php — User profile settings for all roles
+ *
+ * Allows users to edit their profile information and change password.
+ * Accessible by: Admin, Cashier, Student
+ */
+require_once __DIR__ . '/../config/init.php';
+requireRole(ROLE_ADMIN, ROLE_CASHIER, ROLE_STUDENT);
+
+$db = Database::getInstance();
+$userId = currentUserId();
+$role = currentRole();
+
+// Determine table and editable fields based on role
+$table = match ($role) {
+  ROLE_ADMIN => 'admins',
+  ROLE_CASHIER => 'cashiers',
+  ROLE_STUDENT => 'students',
+  default => throw new Exception('Invalid role')
+};
+
+// Fetch current user data
+$stmt = $db->prepare("SELECT * FROM {$table} WHERE id = ?");
+$stmt->execute([$userId]);
+$user = $stmt->fetch();
+
+if (!$user) {
+  flash('settings', 'User not found.', 'error');
+  redirect(APP_URL . '/login.php');
+}
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  // CSRF protection
+  if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+    flash('settings', 'Invalid request. Please try again.', 'error');
+    redirect(APP_URL . '/settings.php');
+  }
+
+  $action = $_POST['action'] ?? '';
+
+  if ($action === 'update_profile') {
+    // Update profile information
+    $fullName = sanitizeString($_POST['full_name'] ?? '', 100);
+    $email = null;
+    $course = null;
+
+    // Validate full name
+    if (empty($fullName)) {
+      flash('settings', 'Full name is required.', 'error');
+      redirect(APP_URL . '/settings.php');
+    }
+
+    // Build update query based on role
+    $updates = ['full_name = ?'];
+    $params = [$fullName];
+
+    // Students can also update email and course
+    if ($role === ROLE_STUDENT) {
+      $email = filter_var(trim($_POST['email'] ?? ''), FILTER_SANITIZE_EMAIL);
+      $course = sanitizeString($_POST['course'] ?? '', 100);
+
+      if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        flash('settings', 'Please enter a valid email address.', 'error');
+        redirect(APP_URL . '/settings.php');
+      }
+
+      $updates[] = 'email = ?';
+      $updates[] = 'course = ?';
+      $params[] = $email ?: null;
+      $params[] = $course;
+    }
+
+    $params[] = $userId;
+
+    try {
+      $sql = "UPDATE {$table} SET " . implode(', ', $updates) . " WHERE id = ?";
+      $stmt = $db->prepare($sql);
+      $stmt->execute($params);
+
+      // Update session
+      $_SESSION['full_name'] = $fullName;
+
+      // Log the action
+      auditLog($role, $userId, 'update_profile');
+
+      flash('settings', 'Profile updated successfully!', 'success');
+    } catch (PDOException $e) {
+      flash('settings', 'Failed to update profile. Please try again.', 'error');
+    }
+
+    redirect(APP_URL . '/settings.php');
+  }
+
+  if ($action === 'change_password') {
+    // Change password
+    $currentPassword = $_POST['current_password'] ?? '';
+    $newPassword = $_POST['new_password'] ?? '';
+    $confirmPassword = $_POST['confirm_password'] ?? '';
+
+    // Validate current password
+    if (!password_verify($currentPassword, $user['password'])) {
+      flash('settings', 'Current password is incorrect.', 'error');
+      redirect(APP_URL . '/settings.php');
+    }
+
+    // Validate new password
+    $passwordError = validatePassword($newPassword);
+    if ($passwordError) {
+      flash('settings', $passwordError, 'error');
+      redirect(APP_URL . '/settings.php');
+    }
+
+    // Check confirmation
+    if ($newPassword !== $confirmPassword) {
+      flash('settings', 'New passwords do not match.', 'error');
+      redirect(APP_URL . '/settings.php');
+    }
+
+    // Hash and update
+    $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+
+    try {
+      $stmt = $db->prepare("UPDATE {$table} SET password = ? WHERE id = ?");
+      $stmt->execute([$passwordHash, $userId]);
+
+      // Log the action
+      auditLog($role, $userId, 'change_password');
+
+      flash('settings', 'Password changed successfully!', 'success');
+    } catch (PDOException $e) {
+      flash('settings', 'Failed to change password. Please try again.', 'error');
+    }
+
+    redirect(APP_URL . '/settings.php');
+  }
+}
+
+// Generate CSRF token
+$_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
+// Get role display name
+$roleDisplay = match ($role) {
+  ROLE_ADMIN => 'Administrator',
+  ROLE_CASHIER => 'Cashier',
+  ROLE_STUDENT => 'Student',
+  default => 'User'
+};
+
+layoutHeader('Settings');
+?>
+
+<style>
+  .settings-container {
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-5);
+  }
+
+  @media (max-width: 900px) {
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .settings-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-card .card-header {
+    flex-shrink: 0;
+  }
+
+  .settings-card>div:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-card form {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .settings-card form>div:first-child {
+    flex: 1;
+  }
+
+  .settings-card form>div:last-child {
+    flex-shrink: 0;
+    margin-top: var(--space-5);
+  }
+
+  .settings-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .settings-icon.profile {
+    background: var(--primary-subtle);
+    color: var(--primary-color);
+  }
+
+  .settings-icon.security {
+    background: var(--status-cancelled-bg);
+    color: var(--status-cancelled);
+  }
+
+  .account-info {
+    padding: var(--space-3);
+    background: var(--surface-raised);
+    border-radius: var(--radius-md);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  .account-info>div+div {
+    margin-top: 4px;
+  }
+</style>
+
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Account Settings</div>
+    <div class="page-header-sub">Manage your profile and security preferences</div>
+  </div>
+</div>
+
+<?php showFlash('settings'); ?>
+
+<div class="settings-container">
+  <div class="settings-grid">
+
+    <!-- Profile Information Card -->
+    <div class="card settings-card">
+      <div class="card-header">
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <div class="settings-icon profile">
+            <i class="fa-solid fa-user"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1rem; font-weight: 700;">Profile Information</h3>
+            <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">Update your personal details</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: var(--space-5);">
+        <form method="POST" action="">
+          <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+          <input type="hidden" name="action" value="update_profile">
+
+          <div style="display: grid; gap: var(--space-4);">
+            <!-- Role (read-only) -->
+            <div class="form-group">
+              <label class="form-label">Account Type</label>
+              <input type="text" class="form-control" value="<?= e($roleDisplay) ?>" disabled style="background: var(--surface-raised); cursor: not-allowed;">
+            </div>
+
+            <!-- Username/Student ID (read-only) -->
+            <div class="form-group">
+              <label class="form-label">
+                <?= $role === ROLE_STUDENT ? 'Student ID' : 'Username' ?>
+              </label>
+              <input type="text" class="form-control" value="<?= e($user['student_id_no'] ?? $user['username'] ?? '') ?>" disabled style="background: var(--surface-raised); cursor: not-allowed;">
+              <div class="form-hint">This cannot be changed</div>
+            </div>
+
+            <!-- Full Name -->
+            <div class="form-group">
+              <label class="form-label" for="full_name">Full Name <span style="color: var(--status-cancelled)">*</span></label>
+              <input type="text" id="full_name" name="full_name" class="form-control" value="<?= e($user['full_name']) ?>" required maxlength="100">
+            </div>
+
+            <?php if ($role === ROLE_STUDENT): ?>
+              <!-- Email (students only) -->
+              <div class="form-group">
+                <label class="form-label" for="email">Email Address</label>
+                <input type="email" id="email" name="email" class="form-control" value="<?= e($user['email'] ?? '') ?>" maxlength="150" placeholder="your.email@example.com">
+                <div class="form-hint">Optional, used for notifications</div>
+              </div>
+
+              <!-- Course (students only) -->
+              <div class="form-group">
+                <label class="form-label" for="course">Course/Program <span style="color: var(--status-cancelled)">*</span></label>
+                <input type="text" id="course" name="course" class="form-control" value="<?= e($user['course'] ?? '') ?>" required maxlength="100" placeholder="e.g., BS Computer Science">
+              </div>
+            <?php endif; ?>
+
+            <!-- Account Info -->
+            <div class="account-info">
+              <div><strong>Account created:</strong> <?= date('M j, Y', strtotime($user['created_at'])) ?></div>
+              <div><strong>Last updated:</strong> <?= date('M j, Y g:i A', strtotime($user['updated_at'])) ?></div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: var(--space-3);">
+            <button type="submit" class="btn btn-primary">
+              <i class="fa-solid fa-save"></i> Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Change Password Card -->
+    <div class="card settings-card">
+      <div class="card-header">
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <div class="settings-icon security">
+            <i class="fa-solid fa-lock"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1rem; font-weight: 700;">Change Password</h3>
+            <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">Update your account password</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: var(--space-5);">
+        <form method="POST" action="">
+          <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+          <input type="hidden" name="action" value="change_password">
+
+          <div style="display: grid; gap: var(--space-4);">
+            <div class="form-group">
+              <label class="form-label" for="current_password">Current Password <span style="color: var(--status-cancelled)">*</span></label>
+              <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="new_password">New Password <span style="color: var(--status-cancelled)">*</span></label>
+              <input type="password" id="new_password" name="new_password" class="form-control" required minlength="8" autocomplete="new-password">
+              <div class="form-hint">Must be at least 8 characters</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="confirm_password">Confirm New Password <span style="color: var(--status-cancelled)">*</span></label>
+              <input type="password" id="confirm_password" name="confirm_password" class="form-control" required autocomplete="new-password">
+            </div>
+
+            <!-- Spacer for alignment -->
+            <div style="flex: 1;"></div>
+
+            <!-- Security tip -->
+            <div style="padding: var(--space-3); background: var(--surface-raised); border-radius: var(--radius-md); font-size: 0.78rem; color: var(--text-muted);">
+              <div><i class="fa-solid fa-shield-halved" style="color: var(--primary-color); margin-right: 6px;"></i><strong>Security Tip</strong></div>
+              <div style="margin-top: 4px;">Use a unique password with a mix of letters, numbers, and symbols.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: var(--space-3);">
+            <button type="submit" class="btn btn-primary">
+              <i class="fa-solid fa-key"></i> Change Password
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<?php layoutFooter(); ?>
