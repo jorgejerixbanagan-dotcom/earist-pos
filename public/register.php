@@ -111,6 +111,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       --land-dim: rgba(26, 16, 8, 0.28);
     }
 
+    /* Hide Microsoft Edge's native password reveal and clear icons */
+    input::-ms-reveal,
+    input::-ms-clear {
+      display: none;
+    }
+
     html {
       font-size: 16px;
     }
@@ -416,6 +422,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.12);
     }
 
+    /* Password Toggle Wrapper */
+    .password-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .password-wrapper .field-input {
+      padding-right: 40px;
+      /* Prevent typing text under the eye icon */
+    }
+
+    .btn-toggle-password {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      color: var(--land-dim);
+      cursor: pointer;
+      font-size: 0.95rem;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s;
+    }
+
+    .btn-toggle-password:hover {
+      color: var(--land-text);
+    }
+
     /* Declaration box */
     .declaration-box {
       background: rgba(240, 180, 41, 0.08);
@@ -607,13 +644,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <div class="two-col">
             <div class="field-group">
               <label class="field-label">Password</label>
-              <input type="password" name="password" class="field-input"
-                placeholder="At least 8 characters" required>
+              <div class="password-wrapper">
+                <input type="password" name="password" id="reg-password" class="field-input"
+                  placeholder="At least 8 characters" required>
+                <button type="button" class="btn-toggle-password" onclick="togglePassword('reg-password', this)" tabindex="-1">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
             </div>
             <div class="field-group">
               <label class="field-label">Confirm Password</label>
-              <input type="password" name="confirm_password" class="field-input"
-                placeholder="Repeat password" required>
+              <div class="password-wrapper">
+                <input type="password" name="confirm_password" id="reg-confirm" class="field-input"
+                  placeholder="Repeat password" required>
+                <button type="button" class="btn-toggle-password" onclick="togglePassword('reg-confirm', this)" tabindex="-1">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -638,6 +685,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </div>
     </div>
   </div>
+
+  <script>
+    function togglePassword(inputId, btn) {
+      const input = document.getElementById(inputId);
+      const icon = btn.querySelector('i');
+
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+      } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+      }
+    }
+  </script>
 
 </body>
 
