@@ -94,21 +94,35 @@ try {
   $topProducts = $db->query(
     "SELECT p.id, p.name, p.image_path,
             c.name AS category_name,
-            COUNT(pr.id)              AS total_ratings,
-            ROUND(AVG(pr.rating), 2)  AS avg_rating,
-            COALESCE(SUM(od.quantity),0) AS total_sold,
-            SUM(pr.rating=5) AS five_star,
-            SUM(pr.rating=4) AS four_star,
-            SUM(pr.rating=3) AS three_star,
-            SUM(pr.rating=2) AS two_star,
-            SUM(pr.rating=1) AS one_star
+            COALESCE(pr.total_ratings, 0) AS total_ratings,
+            pr.avg_rating,
+            COALESCE(od.total_sold, 0) AS total_sold,
+            COALESCE(pr.five_star, 0) AS five_star,
+            COALESCE(pr.four_star, 0) AS four_star,
+            COALESCE(pr.three_star, 0) AS three_star,
+            COALESCE(pr.two_star, 0) AS two_star,
+            COALESCE(pr.one_star, 0) AS one_star
      FROM products p
      JOIN categories c ON p.category_id = c.id
-     LEFT JOIN product_ratings pr ON pr.product_id = p.id
-     LEFT JOIN order_details od   ON od.product_id  = p.id
-     GROUP BY p.id, p.name, p.image_path, c.name
-     HAVING total_ratings > 0
-     ORDER BY avg_rating DESC, total_ratings DESC
+     LEFT JOIN (
+       SELECT product_id,
+              COUNT(id) AS total_ratings,
+              ROUND(AVG(rating), 2) AS avg_rating,
+              SUM(rating=5) AS five_star,
+              SUM(rating=4) AS four_star,
+              SUM(rating=3) AS three_star,
+              SUM(rating=2) AS two_star,
+              SUM(rating=1) AS one_star
+       FROM product_ratings
+       GROUP BY product_id
+     ) pr ON pr.product_id = p.id
+     LEFT JOIN (
+       SELECT product_id, SUM(quantity) AS total_sold
+       FROM order_details
+       GROUP BY product_id
+     ) od ON od.product_id = p.id
+     WHERE pr.total_ratings > 0
+     ORDER BY pr.avg_rating DESC, pr.total_ratings DESC
      LIMIT 20"
   )->fetchAll();
 } catch (\Throwable $e) {
