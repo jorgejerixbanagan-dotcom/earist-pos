@@ -48,7 +48,7 @@ layoutHeader('Receipt', $receiptStyles);
     <div style="font-size:0.78rem;color:var(--text-muted);margin-top:2px"><?= e($order['order_number']) ?></div>
   </div>
   <div style="display:flex;gap:10px">
-    <button onclick="window.print()" class="btn btn-ghost">
+    <button onclick="printReceipt()" class="btn btn-ghost">
       <i class="fa-solid fa-print"></i> Print
     </button>
     <a href="<?= APP_URL ?>/cashier/orders.php" class="btn btn-ghost">
@@ -66,3 +66,11 @@ layoutHeader('Receipt', $receiptStyles);
 </div>
 
 <?php layoutFooter(); ?>
+
+<script>
+  function printReceipt() {
+    const printUrl = '<?= APP_URL ?>/receipt_view.php?order_id=<?= $orderId ?>&format=print';
+    const win = window.open(printUrl, '_blank', 'width=420,height=680');
+    win?.focus();
+  }
+</script>
