@@ -184,19 +184,41 @@
   @media print {
 
     /* Hide the page chrome (nav, header, footer, etc.) */
-    body > header,
-    body > nav,
-    body > footer,
-    body > .no-print,
-    body > .page-header,
-    body > .sidebar,
+    body>header,
+    body>nav,
+    body>footer,
+    body>.no-print,
+    body>.page-header,
+    body>.sidebar,
+    body>.sidebar-backdrop,
     .receipt-overlay,
-    .receipt-modal {
+    .receipt-modal,
+    .topbar {
       display: none !important;
     }
 
-    /* Also hide any direct children of body that aren't the receipt */
-    body > *:not(.rcpt-print-root):not(script):not(style) {
+    /* Show the wrapper containers so the receipt inside is visible */
+    .main-wrapper,
+    .page-content {
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+    }
+
+    /* Hide siblings of .rcpt-print-root inside .page-content */
+    .page-content>*:not(.rcpt-print-root):not(script):not(style) {
+      display: none !important;
+    }
+
+    /* Hide flash messages and alerts */
+    .alert,
+    [style*="padding:12px 28px"] {
+      display: none !important;
+    }
+
+    /* Hide no-print elements anywhere */
+    .no-print {
       display: none !important;
     }
 

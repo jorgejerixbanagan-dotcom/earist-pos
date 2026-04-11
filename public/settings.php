@@ -1,4 +1,5 @@
 <?php
+
 /**
  * settings.php — User profile settings for all roles
  *
@@ -231,6 +232,47 @@ layoutHeader('Settings');
   .account-info>div+div {
     margin-top: 4px;
   }
+
+  /* Password toggle wrapper */
+  .password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .password-wrapper .form-control {
+    padding-right: 40px;
+  }
+
+  .password-toggle {
+    position: absolute;
+    right: 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+  }
+
+  .password-toggle:hover {
+    color: var(--text);
+  }
+
+  /* Disable Microsoft Edge's built-in password reveal button */
+  input[type="password"]::-ms-reveal,
+  input[type="text"]::-ms-reveal {
+    display: none;
+  }
+
+  /* Also disable for webkit browsers' native reveal */
+  input[type="password"]::-webkit-credentials-auto-fill-button,
+  input[type="text"]::-webkit-credentials-auto-fill-button {
+    display: none;
+  }
 </style>
 
 <div class="page-header">
@@ -339,18 +381,33 @@ layoutHeader('Settings');
           <div style="display: grid; gap: var(--space-4);">
             <div class="form-group">
               <label class="form-label" for="current_password">Current Password <span style="color: var(--status-cancelled)">*</span></label>
-              <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password">
+              <div class="password-wrapper">
+                <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password">
+                <button type="button" class="password-toggle" data-target="current_password" aria-label="Toggle password visibility">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
             </div>
 
             <div class="form-group">
               <label class="form-label" for="new_password">New Password <span style="color: var(--status-cancelled)">*</span></label>
-              <input type="password" id="new_password" name="new_password" class="form-control" required minlength="8" autocomplete="new-password">
+              <div class="password-wrapper">
+                <input type="password" id="new_password" name="new_password" class="form-control" required minlength="8" autocomplete="new-password">
+                <button type="button" class="password-toggle" data-target="new_password" aria-label="Toggle password visibility">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
               <div class="form-hint">Must be at least 8 characters</div>
             </div>
 
             <div class="form-group">
               <label class="form-label" for="confirm_password">Confirm New Password <span style="color: var(--status-cancelled)">*</span></label>
-              <input type="password" id="confirm_password" name="confirm_password" class="form-control" required autocomplete="new-password">
+              <div class="password-wrapper">
+                <input type="password" id="confirm_password" name="confirm_password" class="form-control" required autocomplete="new-password">
+                <button type="button" class="password-toggle" data-target="confirm_password" aria-label="Toggle password visibility">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
             </div>
 
             <!-- Spacer for alignment -->
@@ -376,3 +433,24 @@ layoutHeader('Settings');
 </div>
 
 <?php layoutFooter(); ?>
+
+<script>
+  // Password visibility toggle
+  document.querySelectorAll('.password-toggle').forEach(function(toggle) {
+    toggle.addEventListener('click', function() {
+      var inputId = this.getAttribute('data-target');
+      var input = document.getElementById(inputId);
+      var icon = this.querySelector('i');
+
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+      } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+      }
+    });
+  });
+</script>

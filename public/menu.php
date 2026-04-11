@@ -2,7 +2,7 @@
 // ============================================================
 // public/menu.php  —  Public-facing menu (no login required)
 // Shows all available products grouped by category.
-// Logged-in students see an "Order Now" CTA on each card.
+// Browse-only — students order from their dashboard.
 // ============================================================
 require_once __DIR__ . '/../config/init.php';
 
@@ -44,8 +44,7 @@ foreach ($categories as $cat) {
 $catGroups     = array_filter($categories, fn($c) => $c['parent_id'] === null && !empty($catsByParent[$c['id']]));
 $catStandalone = array_filter($categories, fn($c) => $c['parent_id'] === null && empty($catsByParent[$c['id']]));
 
-$isStudent = isLoggedIn() && currentUserRole() === ROLE_STUDENT;
-$imgBase   = APP_URL . '/../uploads/products/';
+$imgBase = APP_URL . '/../uploads/products/';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -663,92 +662,6 @@ $imgBase   = APP_URL . '/../uploads/products/';
       letter-spacing: -0.01em;
     }
 
-    .btn-order {
-      height: 30px;
-      padding: 0 14px;
-      border-radius: 7px;
-      border: none;
-      background: var(--primary-color);
-      color: #fff;
-      font-size: 0.74rem;
-      font-weight: 700;
-      font-family: inherit;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.15s;
-      box-shadow: 0 3px 8px rgba(192, 57, 43, 0.35);
-      flex-shrink: 0;
-    }
-
-    .btn-order:hover {
-      background: var(--primary-dark);
-      transform: translateY(-1px);
-      box-shadow: 0 5px 14px rgba(192, 57, 43, 0.45);
-    }
-
-    .btn-order:active {
-      transform: translateY(0);
-    }
-
-    .btn-order-guest {
-      height: 30px;
-      padding: 0 12px;
-      border-radius: 7px;
-      border: 1.5px solid rgba(107, 62, 38, 0.18);
-      background: transparent;
-      color: var(--land-muted);
-      font-size: 0.72rem;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.15s;
-      text-decoration: none;
-      flex-shrink: 0;
-    }
-
-    .btn-order-guest:hover {
-      border-color: rgba(107, 62, 38, 0.30);
-      color: var(--land-text);
-      background: rgba(107, 62, 38, 0.06);
-    }
-
-    .toast {
-      position: fixed;
-      bottom: 28px;
-      left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: #ffffff;
-      border: 1px solid rgba(192, 57, 43, 0.20);
-      border-radius: 10px;
-      padding: 12px 20px;
-      font-size: 0.84rem;
-      font-weight: 500;
-      color: var(--land-text);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      box-shadow: 0 8px 32px rgba(107, 62, 38, 0.14);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.25s, transform 0.25s;
-      z-index: 999;
-      white-space: nowrap;
-    }
-
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-
-    .toast i {
-      color: var(--status-ready);
-    }
-
     .cta-banner {
       margin: 0 48px 56px;
       background: linear-gradient(135deg, rgba(192, 57, 43, 0.06), rgba(107, 62, 38, 0.04));
@@ -1037,13 +950,6 @@ $imgBase   = APP_URL . '/../uploads/products/';
   <main class="content">
     <div class="results-bar" id="results-bar">
       <span>Showing <strong id="results-count"><?= count($products) ?></strong> items</span>
-      <?php if (!isLoggedIn()): ?>
-        <span style="font-size:0.74rem">
-          <i class="fa-solid fa-circle-info" style="color:var(--accent-color);margin-right:4px"></i>
-          <a href="<?= APP_URL ?>/register.php" style="color:var(--accent-color);font-weight:600">Register</a>
-          to place pre-orders
-        </span>
-      <?php endif; ?>
     </div>
 
     <div class="empty-search" id="empty-search">
@@ -1102,19 +1008,6 @@ $imgBase   = APP_URL . '/../uploads/products/';
                     <?php if ($p['avg_rating'] > 0): ?>
                       <span class="card-rating-badge">★ <?= $p['avg_rating'] ?></span>
                     <?php endif; ?>
-
-                    <?php if ($p['is_available']): ?>
-                      <?php if ($isStudent): ?>
-                        <button class="btn-order"
-                          onclick="addToCart(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['name'])) ?>, <?= $p['price'] ?>)">
-                          <i class="fa-solid fa-cart-plus"></i> Add
-                        </button>
-                      <?php else: ?>
-                        <a href="<?= APP_URL ?>/login.php" class="btn-order-guest">
-                          <i class="fa-solid fa-lock"></i> Order
-                        </a>
-                      <?php endif; ?>
-                    <?php endif; ?>
                   </div>
                 </div>
 
@@ -1158,11 +1051,6 @@ $imgBase   = APP_URL . '/../uploads/products/';
       <a href="<?= APP_URL ?>/register.php">Register</a>
     </div>
   </footer>
-
-  <div class="toast" id="toast">
-    <i class="fa-solid fa-circle-check"></i>
-    <span id="toast-msg">Added to cart</span>
-  </div>
 
   <script>
     const navbar = document.getElementById('navbar');
@@ -1256,31 +1144,6 @@ $imgBase   = APP_URL . '/../uploads/products/';
       });
       document.getElementById('results-count').textContent = visibleCount;
       document.getElementById('empty-search').style.display = visibleCount === 0 ? 'block' : 'none';
-    }
-
-    <?php if ($isStudent): ?>
-
-      function addToCart(id, name, price) {
-        const cart = JSON.parse(sessionStorage.getItem('student_cart') || '{}');
-        if (!cart[id]) cart[id] = {
-          name,
-          price,
-          qty: 0
-        };
-        cart[id].qty++;
-        sessionStorage.setItem('student_cart', JSON.stringify(cart));
-        showToast(name + ' added to cart');
-      }
-    <?php endif; ?>
-
-    let toastTimer;
-
-    function showToast(msg) {
-      const toast = document.getElementById('toast');
-      document.getElementById('toast-msg').textContent = msg;
-      toast.classList.add('show');
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.classList.remove('show'), 2800);
     }
   </script>
 
