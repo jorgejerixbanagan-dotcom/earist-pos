@@ -1298,6 +1298,9 @@ layoutHeader('Walk-in POS', '');
 
     <div class="filter-bar-wrap" id="c">
       <div class="cat-pills" id="tier-1">
+        <button class="cat-pill active" data-type="all" data-id="all">
+          All <span class="cat-pill-count"><?= count($allProducts) ?></span>
+        </button>
         <?php foreach ($catGroups as $group): ?>
           <button class="cat-pill" data-type="group" data-id="<?= $group['id'] ?>">
             <?php if (!empty($group['icon'])): ?><i class="fa-solid <?= e($group['icon']) ?>"></i><?php endif; ?>
@@ -1826,12 +1829,8 @@ layoutHeader('Walk-in POS', '');
     applyFilter();
   });
 
-  const defaultPill = document.querySelector('#tier-1 .cat-pill');
-  if (defaultPill) {
-    defaultPill.classList.add('active');
-    activeType = defaultPill.dataset.type;
-    activeId = defaultPill.dataset.id;
-  }
+  activeType = 'all';
+  activeId = 'all';
   applyFilter();
 
   function applyFilter() {
