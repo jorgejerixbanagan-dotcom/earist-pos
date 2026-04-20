@@ -1081,6 +1081,94 @@ input:checked + .switch-slider::before {
 }
 
 /* ================================================================
+   TOAST NOTIFICATIONS
+   ================================================================ */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-md);
+  animation: toastIn 0.3s ease-out;
+  margin-bottom: var(--space-3);
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.toast > i {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+.toast > span {
+  flex: 1;
+  line-height: 1.4;
+}
+.toast-close {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toast-close:hover {
+  opacity: 1;
+}
+.toast-close i {
+  font-size: 12px;
+}
+
+.toast-success {
+  background: var(--status-ready-bg);
+  color: var(--status-ready);
+  border-color: var(--status-ready-border);
+}
+.toast-error {
+  background: var(--status-cancelled-bg);
+  color: var(--status-cancelled);
+  border-color: var(--status-cancelled-border);
+}
+.toast-warning {
+  background: var(--status-pending-bg);
+  color: var(--status-pending);
+  border-color: var(--status-pending-border);
+}
+.toast-info {
+  background: var(--status-preparing-bg);
+  color: var(--status-preparing);
+  border-color: var(--status-preparing-border);
+}
+
+/* Auto-dismiss animation */
+.toast.toast-exit {
+  animation: toastOut 0.3s ease-in forwards;
+}
+@keyframes toastOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* ================================================================
    RESPONSIVE OVERRIDES  (appended — do not edit above this line)
    ================================================================ */
 

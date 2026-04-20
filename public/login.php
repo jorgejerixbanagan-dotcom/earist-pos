@@ -3,12 +3,12 @@
 // public/login.php
 //
 // WHAT THIS FILE DOES:
-//   The login page for ALL three roles (Admin, Cashier, Student).
+//   The login page for ALL four roles (Admin, Cashier, Faculty, Student).
 //   The user selects their role, enters credentials, and submits.
 //
 // FLOW:
 //   GET  request → show the login form
-//   POST request → validate credentials → log in → redirect
+//   POST request → validate credentials → check email verified → log in → redirect
 // ============================================================
 
 require_once __DIR__ . '/../config/init.php';
@@ -26,13 +26,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   verifyCsrf(); // Security check first
 
   $role       = $_POST['role']       ?? '';
-  $identifier = sanitizeString($_POST['identifier'] ?? ''); // username or student ID
+  $identifier = sanitizeString($_POST['identifier'] ?? ''); // username or ID
   $password   = $_POST['password']   ?? '';
 
   // Basic validation
   if (empty($role) || empty($identifier) || empty($password)) {
     $error = 'Please fill in all fields.';
-  } elseif (!in_array($role, [ROLE_ADMIN, ROLE_CASHIER, ROLE_STUDENT], true)) {
+  } elseif (!in_array($role, [ROLE_ADMIN, ROLE_CASHIER, ROLE_FACULTY, ROLE_STUDENT], true)) {
     $error = 'Invalid role selected.';
   } elseif (!checkLoginAttempts($identifier)) {
     $error = 'Too many failed attempts. Please wait 15 minutes.';
@@ -49,14 +49,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $stmt = $db->prepare("SELECT * FROM cashiers WHERE username = ? AND is_active = 1 LIMIT 1");
       $stmt->execute([$identifier]);
       $user = $stmt->fetch();
+    } elseif ($role === ROLE_FACULTY) {
+      $stmt = $db->prepare("SELECT * FROM faculty WHERE faculty_id_no = ? AND is_active = 1 LIMIT 1");
+      $stmt->execute([$identifier]);
+      $user = $stmt->fetch();
     } elseif ($role === ROLE_STUDENT) {
-      // Students log in with their Student ID Number
       $stmt = $db->prepare("SELECT * FROM students WHERE student_id_no = ? AND is_active = 1 LIMIT 1");
       $stmt->execute([$identifier]);
       $user = $stmt->fetch();
     }
 
     if ($user && password_verify($password, $user['password'])) {
+      // Check email verification for students and faculty
+      $emailField = $role === ROLE_FACULTY ? 'faculty_id_no' : 'student_id_no';
+
+      if (in_array($role, [ROLE_STUDENT, ROLE_FACULTY])) {
+        if (empty($user['email_verified']) || $user['email_verified'] != 1) {
+          // Email not verified - redirect to verification
+          $_SESSION['pending_verification'] = [
+            'user_type' => $role,
+            'user_id'   => $user['id'],
+            'email'     => $user['email'],
+            'purpose'   => 'verification'
+          ];
+          flash('global', 'Please verify your email address to continue.', 'warning');
+          redirect(APP_URL . '/verify-email.php');
+        }
+      }
+
       // Password matches — log them in
       clearLoginAttempts($identifier);
       loginUser($user, $role);
@@ -599,6 +619,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       <div class="auth-body">
 
+        <?php
+        // Flash message from verify-email, password reset, etc.
+        $flash = getFlash('global');
+        if ($flash): ?>
+          <div class="auth-alert auth-alert-<?= $flash['type'] === 'error' ? 'danger' : ($flash['type'] === 'warning' ? 'warning' : 'success') ?>">
+            <i class="fa-solid fa-<?= $flash['type'] === 'error' ? 'circle-xmark' : ($flash['type'] === 'warning' ? 'triangle-exclamation' : 'circle-check') ?>"></i> <?= e($flash['message']) ?>
+          </div>
+        <?php endif; ?>
+
         <?php if (!empty($error)): ?>
           <div class="auth-alert auth-alert-danger">
             <i class="fa-solid fa-circle-xmark"></i> <?= e($error) ?>
@@ -621,10 +650,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <?= csrfField() ?>
 
           <div class="role-label">I am a&hellip;</div>
-          <div class="role-tabs">
+          <div class="role-tabs" style="grid-template-columns: repeat(4, 1fr);">
             <button type="button" class="role-tab <?= $selected === ROLE_STUDENT  ? 'active' : '' ?>"
               onclick="selectRole('<?= ROLE_STUDENT ?>')">
               <i class="fa-solid fa-graduation-cap"></i>Student
+            </button>
+            <button type="button" class="role-tab <?= $selected === ROLE_FACULTY  ? 'active' : '' ?>"
+              onclick="selectRole('<?= ROLE_FACULTY ?>')">
+              <i class="fa-solid fa-chalkboard-user"></i>Faculty
             </button>
             <button type="button" class="role-tab <?= $selected === ROLE_CASHIER ? 'active' : '' ?>"
               onclick="selectRole('<?= ROLE_CASHIER ?>')">
@@ -666,6 +699,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           New student? <a href="<?= APP_URL ?>/register.php">Create an account</a>
         </div>
 
+        <div class="auth-footer" style="margin-top:6px">
+          <a href="<?= APP_URL ?>/register-faculty.php" style="color:var(--land-muted)">
+            <i class="fa-solid fa-chalkboard-user" style="margin-right:4px"></i>Faculty registration
+          </a>
+        </div>
+
+        <div class="auth-footer" style="margin-top:10px">
+          <a href="<?= APP_URL ?>/forgot-password.php" style="color:var(--primary-color)">
+            <i class="fa-solid fa-key" style="margin-right:4px"></i>Forgot password?
+          </a>
+        </div>
+
         <div class="auth-footer" style="margin-top:10px">
           <a href="<?= APP_URL ?>/menu.php" style="color:var(--land-muted)">
             <i class="fa-solid fa-list" style="margin-right:4px"></i>Browse menu without signing in
@@ -680,7 +725,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     const labels = {
       student: {
         label: 'Student ID Number',
-        placeholder: 'e.g. 2023-00001'
+        placeholder: 'e.g. 2316-00001C'
+      },
+      faculty: {
+        label: 'Faculty ID',
+        placeholder: 'e.g. 2023-0001'
       },
       cashier: {
         label: 'Username',

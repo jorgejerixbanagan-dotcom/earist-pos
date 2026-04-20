@@ -100,6 +100,9 @@ function loginUser(array $user, string $role): void {
   if ($role === ROLE_STUDENT) {
     $_SESSION['student_id_no'] = $user['student_id_no'];
   }
+  if ($role === ROLE_FACULTY) {
+    $_SESSION['faculty_id_no'] = $user['faculty_id_no'];
+  }
 
   $_SESSION['last_activity'] = time();
   $_SESSION['login_time']    = time();
@@ -191,6 +194,9 @@ function redirectByRole(): void {
       break;
     case ROLE_STUDENT:
       header('Location: ' . APP_URL . '/student/dashboard.php');
+      break;
+    case ROLE_FACULTY:
+      header('Location: ' . APP_URL . '/faculty/dashboard.php');
       break;
     default:
       header('Location: ' . APP_URL . '/login.php');

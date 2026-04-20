@@ -42,6 +42,13 @@ unset($_proto);
 define('ROLE_ADMIN',   'admin');
 define('ROLE_CASHIER', 'cashier');
 define('ROLE_STUDENT', 'student');
+define('ROLE_FACULTY',  'faculty');
+
+// --- OTP Settings ---
+define('OTP_LENGTH',          6);      // Number of digits in OTP
+define('OTP_EXPIRY_MINUTES',  15);     // OTP valid for 15 minutes
+define('OTP_RESEND_COOLDOWN', 60);     // Seconds before allowing resend
+define('MAX_OTP_ATTEMPTS',    5);      // Max OTP attempts before lockout
 
 // --- Order types ---
 define('ORDER_WALKIN',   'walk-in');

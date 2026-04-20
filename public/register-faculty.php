@@ -1,15 +1,15 @@
 <?php
 // ============================================================
-// public/register.php
+// public/register-faculty.php
 //
 // WHAT THIS FILE DOES:
-//   Self-registration page for STUDENTS ONLY.
-//   Admins and cashiers are created by the admin inside the system.
+//   Self-registration page for FACULTY (Professors).
+//   Similar flow to student registration but with Faculty ID format.
 //
 // FLOW:
 //   GET  → show the form
-//   POST → validate all fields → check student ID format & uniqueness
-//         → hash password → insert into students table → send OTP
+//   POST → validate all fields → check faculty ID format & uniqueness
+//         → hash password → insert into faculty table → send OTP
 //         → redirect to verify-email.php for verification
 // ============================================================
 
@@ -18,15 +18,14 @@ require_once __DIR__ . '/../config/init.php';
 if (isLoggedIn()) redirectByRole();
 
 $errors = [];
-$old    = []; // Stores previously entered values to refill the form on error
+$old    = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   verifyCsrf();
 
   // Collect and sanitize all inputs
   $old['full_name']     = sanitizeString($_POST['full_name']     ?? '');
-  $old['student_id_no'] = sanitizeString($_POST['student_id_no'] ?? '');
-  $old['course']        = sanitizeString($_POST['course']        ?? '');
+  $old['faculty_id_no'] = sanitizeString($_POST['faculty_id_no'] ?? '');
   $old['email']         = filter_var(trim($_POST['email'] ?? ''), FILTER_SANITIZE_EMAIL);
   $password            = $_POST['password']                     ?? '';
   $confirm             = $_POST['confirm_password']             ?? '';
@@ -34,14 +33,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   // Validation rules
   if (empty($old['full_name']))                                    $errors[] = 'Full name is required.';
-  if (empty($old['student_id_no']))                                $errors[] = 'Student ID number is required.';
-  if (empty($old['course']))                                       $errors[] = 'Course is required.';
+  if (empty($old['faculty_id_no']))                                $errors[] = 'Faculty ID number is required.';
   if (empty($old['email']))                                        $errors[] = 'Email address is required.';
   if (!$declared)                                                  $errors[] = 'You must confirm that the ID provided is correct.';
 
-  // Validate Student ID format (2316-00001C)
-  if (empty($errors) && !empty($old['student_id_no'])) {
-    $idError = validateStudentId($old['student_id_no']);
+  // Validate Faculty ID format (2023-0001)
+  if (empty($errors) && !empty($old['faculty_id_no'])) {
+    $idError = validateFacultyId($old['faculty_id_no']);
     if ($idError) $errors[] = $idError;
   }
 
@@ -57,20 +55,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($pwError)                                                    $errors[] = $pwError;
   if ($password !== $confirm)                                      $errors[] = 'Passwords do not match.';
 
-  // Check if Student ID is already registered
+  // Check if Faculty ID is already registered
   if (empty($errors)) {
     $db   = Database::getInstance();
-    $stmt = $db->prepare("SELECT id FROM students WHERE student_id_no = ? LIMIT 1");
-    $stmt->execute([$old['student_id_no']]);
+    $stmt = $db->prepare("SELECT id FROM faculty WHERE faculty_id_no = ? LIMIT 1");
+    $stmt->execute([$old['faculty_id_no']]);
     if ($stmt->fetch()) {
-      $errors[] = 'That Student ID is already registered. Please log in.';
+      $errors[] = 'That Faculty ID is already registered. Please log in.';
     }
   }
 
   // Check if email is already registered
   if (empty($errors) && !empty($old['email'])) {
     $db   = Database::getInstance();
-    $stmt = $db->prepare("SELECT id FROM students WHERE email = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id FROM faculty WHERE email = ? LIMIT 1");
     $stmt->execute([$old['email']]);
     if ($stmt->fetch()) {
       $errors[] = 'That email is already registered. Please use a different email.';
@@ -84,13 +82,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
       $stmt = $db->prepare(
-        "INSERT INTO students (full_name, student_id_no, course, email, password, id_declaration, email_verified)
-               VALUES (?, ?, ?, ?, ?, 1, 0)"
+        "INSERT INTO faculty (full_name, faculty_id_no, email, password, id_declaration, email_verified)
+               VALUES (?, ?, ?, ?, 1, 0)"
       );
       $stmt->execute([
         $old['full_name'],
-        $old['student_id_no'],
-        $old['course'],
+        $old['faculty_id_no'],
         $old['email'],
         $hash,
       ]);
@@ -99,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       // Generate and send OTP
       $otp = generateOtp();
-      storeOtp(ROLE_STUDENT, $newId, $old['email'], $otp, 'verification');
+      storeOtp(ROLE_FACULTY, $newId, $old['email'], $otp, 'verification');
       $emailResult = sendOtpEmail($old['email'], $otp, 'verification');
 
       if (!$emailResult['success']) {
@@ -109,18 +106,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       // Store pending verification in session
       $_SESSION['pending_verification'] = [
-        'user_type' => ROLE_STUDENT,
+        'user_type' => ROLE_FACULTY,
         'user_id'   => $newId,
         'email'     => $old['email'],
         'purpose'   => 'verification'
       ];
 
-      auditLog(ROLE_STUDENT, $newId, 'register');
+      auditLog(ROLE_FACULTY, $newId, 'register');
       redirect(APP_URL . '/verify-email.php');
 
     } catch (PDOException $e) {
       $errors[] = 'Registration failed. Please try again.';
-      error_log('Registration error: ' . $e->getMessage());
+      error_log('Faculty registration error: ' . $e->getMessage());
     }
   }
 }
@@ -131,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Register — <?= APP_NAME ?></title>
+  <title>Faculty Registration — <?= APP_NAME ?></title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -155,7 +152,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       --land-dim: rgba(26, 16, 8, 0.28);
     }
 
-    /* Hide Microsoft Edge's native password reveal and clear icons */
     input::-ms-reveal,
     input::-ms-clear {
       display: none;
@@ -204,7 +200,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       z-index: 0;
     }
 
-    /* ---- Navbar ---- */
     .nav {
       padding: 18px 40px;
       display: flex;
@@ -249,11 +244,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       color: var(--land-text);
     }
 
-    .nav-logo-sub {
-      font-size: 0.60rem;
-      color: var(--land-muted);
-    }
-
     .nav-back {
       font-size: 0.78rem;
       font-weight: 500;
@@ -273,7 +263,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       border-color: rgba(107, 62, 38, 0.28);
     }
 
-    /* ---- Page layout ---- */
     .page-wrap {
       flex: 1;
       display: flex;
@@ -284,7 +273,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       z-index: 1;
     }
 
-    /* ---- Card ---- */
     .auth-card {
       width: 100%;
       max-width: 480px;
@@ -301,7 +289,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         opacity: 0;
         transform: translateY(24px) scale(0.97);
       }
-
       to {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -368,12 +355,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       z-index: 1;
     }
 
-    /* ---- Body ---- */
     .auth-body {
       padding: 26px 32px 32px;
     }
 
-    /* Error list */
     .auth-alert {
       padding: 12px 16px;
       border-radius: 10px;
@@ -402,15 +387,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       border-color: rgba(239, 68, 68, 0.20);
     }
 
-    /* Fields */
     .field-group {
       margin-bottom: 16px;
-    }
-
-    .two-col {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
     }
 
     .field-label {
@@ -434,22 +412,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       color: var(--land-text);
       outline: none;
       transition: border-color 0.15s, background 0.15s;
-      appearance: none;
-    }
-
-    select.field-input {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23706050' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
-      background-color: rgba(255, 255, 255, 0.04);
-      padding-right: 32px;
-      cursor: pointer;
-    }
-
-    select.field-input option,
-    select.field-input optgroup {
-      background: #ffffff;
-      color: #1a1008;
     }
 
     .field-input::placeholder {
@@ -466,7 +428,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.12);
     }
 
-    /* Password Toggle Wrapper */
+    .field-hint {
+      font-size: 0.7rem;
+      color: var(--land-muted);
+      margin-top: 4px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
     .password-wrapper {
       position: relative;
       display: flex;
@@ -475,7 +448,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     .password-wrapper .field-input {
       padding-right: 40px;
-      /* Prevent typing text under the eye icon */
     }
 
     .btn-toggle-password {
@@ -497,7 +469,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       color: var(--land-text);
     }
 
-    /* Declaration box */
     .declaration-box {
       background: rgba(240, 180, 41, 0.08);
       border: 1.5px solid rgba(240, 180, 41, 0.25);
@@ -530,7 +501,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       font-weight: 600;
     }
 
-    /* Submit */
     .btn-submit {
       width: 100%;
       height: 44px;
@@ -561,7 +531,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       transform: translateY(0);
     }
 
-    /* Footer */
     .auth-footer {
       text-align: center;
       margin-top: 18px;
@@ -616,9 +585,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="auth-card">
 
       <div class="auth-top">
-        <div class="auth-logo"><i class="fa-solid fa-graduation-cap"></i></div>
-        <div class="auth-title">Create your <em>account</em></div>
-        <div class="auth-sub">EARIST Cavite Campus &mdash; Students only</div>
+        <div class="auth-logo"><i class="fa-solid fa-chalkboard-user"></i></div>
+        <div class="auth-title">Create your <em>faculty account</em></div>
+        <div class="auth-sub">EARIST Cavite Campus &mdash; Faculty Registration</div>
       </div>
 
       <div class="auth-body">
@@ -640,64 +609,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <div class="field-group">
             <label class="field-label">Full Name</label>
             <input type="text" name="full_name" class="field-input"
-              placeholder="Juan Dela Cruz" required
+              placeholder="Prof. Juan Dela Cruz" required
               value="<?= e($old['full_name'] ?? '') ?>">
           </div>
 
           <div class="field-group">
-            <label class="field-label">Student ID Number</label>
-            <input type="text" name="student_id_no" class="field-input"
-              placeholder="e.g. 2316-00001C" required
-              pattern="\d{4}-\d{5}[A-Z]"
-              title="Format: 2316-00001C (4 digits, hyphen, 5 digits, 1 uppercase letter)"
-              value="<?= e($old['student_id_no'] ?? '') ?>">
-            <div class="field-hint" style="font-size: 0.7rem; color: var(--land-muted); margin-top: 4px;">
-              Format: 2316-00001C (4 digits, hyphen, 5 digits, 1 uppercase letter)
-            </div>
+            <label class="field-label">Faculty ID Number</label>
+            <input type="text" name="faculty_id_no" class="field-input"
+              placeholder="e.g. 2023-0001" required
+              pattern="\d{4}-\d{4}"
+              title="Format: 2023-0001 (4 digits, hyphen, 4 digits)"
+              value="<?= e($old['faculty_id_no'] ?? '') ?>">
+            <div class="field-hint">Format: 2023-0001 (4 digits, hyphen, 4 digits)</div>
           </div>
 
           <div class="field-group">
             <label class="field-label">Email Address</label>
             <input type="email" name="email" class="field-input"
-              placeholder="your.email@example.com" required
+              placeholder="your.email@earist.edu.ph" required
               value="<?= e($old['email'] ?? '') ?>">
-            <div class="field-hint" style="font-size: 0.7rem; color: var(--land-muted); margin-top: 4px;">
-              Used for verification and password recovery
-            </div>
-          </div>
-
-          <div class="field-group">
-            <label class="field-label">Course</label>
-            <select name="course" class="field-input" required>
-              <option value="" disabled <?= empty($old['course'] ?? '') ? 'selected' : '' ?>>Select your course…</option>
-              <optgroup label="College of Business and Management">
-                <option value="BS Business Administration" <?= ($old['course'] ?? '') === 'BS Business Administration'     ? 'selected' : '' ?>>BS Business Administration</option>
-                <option value="BS Office Administration" <?= ($old['course'] ?? '') === 'BS Office Administration'       ? 'selected' : '' ?>>BS Office Administration</option>
-              </optgroup>
-              <optgroup label="College of Computing and Information Sciences">
-                <option value="BS Computer Science" <?= ($old['course'] ?? '') === 'BS Computer Science'            ? 'selected' : '' ?>>BS Computer Science</option>
-                <option value="BS Information Technology" <?= ($old['course'] ?? '') === 'BS Information Technology'      ? 'selected' : '' ?>>BS Information Technology</option>
-              </optgroup>
-              <optgroup label="College of Criminal Justice Education">
-                <option value="BS Criminology" <?= ($old['course'] ?? '') === 'BS Criminology'                 ? 'selected' : '' ?>>BS Criminology</option>
-              </optgroup>
-              <optgroup label="College of Hospitality and Tourism Management">
-                <option value="BS Hospitality Management" <?= ($old['course'] ?? '') === 'BS Hospitality Management'      ? 'selected' : '' ?>>BS Hospitality Management</option>
-              </optgroup>
-              <optgroup label="College of Arts and Sciences">
-                <option value="BS Psychology" <?= ($old['course'] ?? '') === 'BS Psychology'                  ? 'selected' : '' ?>>BS Psychology</option>
-              </optgroup>
-              <optgroup label="College of Technology and Livelihood Education">
-                <option value="Bachelor of Technology and Livelihood Education" <?= ($old['course'] ?? '') === 'Bachelor of Technology and Livelihood Education' ? 'selected' : '' ?>>Bachelor of Technology and Livelihood Education</option>
-              </optgroup>
-              <optgroup label="BS Industrial Technology — Major in:">
-                <option value="BSIT - Food Technology" <?= ($old['course'] ?? '') === 'BSIT - Food Technology'         ? 'selected' : '' ?>>BSIT — Food Technology</option>
-                <option value="BSIT - Electrical" <?= ($old['course'] ?? '') === 'BSIT - Electrical'              ? 'selected' : '' ?>>BSIT — Electrical</option>
-                <option value="BSIT - Automotive" <?= ($old['course'] ?? '') === 'BSIT - Automotive'              ? 'selected' : '' ?>>BSIT — Automotive</option>
-                <option value="BSIT - Drafting" <?= ($old['course'] ?? '') === 'BSIT - Drafting'                ? 'selected' : '' ?>>BSIT — Drafting</option>
-                <option value="BSIT - Electronics" <?= ($old['course'] ?? '') === 'BSIT - Electronics'             ? 'selected' : '' ?>>BSIT — Electronics</option>
-              </optgroup>
-            </select>
+            <div class="field-hint">Used for verification and password recovery</div>
           </div>
 
           <div class="two-col">

@@ -281,7 +281,9 @@ layoutHeader('Order History');
     document.body.style.overflow = 'hidden';
 
     fetch(RECEIPT_URL + orderId, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest'
+        }
       })
       .then(r => r.json())
       .then(data => {

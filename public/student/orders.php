@@ -6,7 +6,7 @@ $db = Database::getInstance();
 // ── AJAX endpoint: return order items as JSON ─────────────────
 if (isset($_GET['get_order_items'])) {
   header('Content-Type: application/json');
-  
+
   $oid  = (int)$_GET['get_order_items'];
   // Verify order belongs to current student
   $chk = $db->prepare("SELECT id FROM orders WHERE id=? AND student_id=?");
@@ -463,7 +463,8 @@ layoutHeader('My Orders');
         document.getElementById('fb-products-section').style.display = 'block';
       }
     } catch (e) {
-      /* silently skip product cards on error */ }
+      /* silently skip product cards on error */
+    }
   }
 
   function renderProductCards(items) {
@@ -511,6 +512,6 @@ layoutHeader('My Orders');
   });
 </script>
 
-<?php 
-layoutFooter(); 
+<?php
+layoutFooter();
 ?>

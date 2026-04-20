@@ -18,21 +18,29 @@ error_reporting(E_ALL);
 // 1. Constants (DB credentials, role names, status names, etc.)
 require_once __DIR__ . '/constants.php';
 
-// 2. Session configuration + session_start()
+// 2. Mail configuration (SMTP settings for email)
+require_once __DIR__ . '/mail.php';
+
+// 3. Session configuration + session_start()
 require_once __DIR__ . '/session.php';
 
-// 3. Database class (PDO singleton)
+// 4. Database class (PDO singleton)
 require_once __DIR__ . '/database.php';
 
-// 4. General helper functions (peso(), e(), flash(), auditLog(), etc.)
+// 5. General helper functions (peso(), e(), flash(), auditLog(), etc.)
 require_once __DIR__ . '/../includes/functions.php';
 
-// 5. Authentication helpers (requireRole(), loginUser(), logoutUser(), etc.)
+// 6. Authentication helpers (requireRole(), loginUser(), logoutUser(), etc.)
 require_once __DIR__ . '/../includes/auth.php';
 
-// 6. CSRF helpers (csrfToken(), csrfField(), verifyCsrf(), etc.)
+// 7. CSRF helpers (csrfToken(), csrfField(), verifyCsrf(), etc.)
 require_once __DIR__ . '/../includes/csrf.php';
 
-// 7. Layout helpers (layoutHeader(), layoutFooter(), navItem())
-//    THIS WAS MISSING — it is what defines layoutHeader() and layoutFooter()
+// 8. Email helpers (sendEmail(), sendOtpEmail(), etc.)
+require_once __DIR__ . '/../includes/mail.php';
+
+// 9. OTP helpers (generateOtp(), storeOtp(), validateOtp(), etc.)
+require_once __DIR__ . '/../includes/otp.php';
+
+// 10. Layout helpers (layoutHeader(), layoutFooter(), navItem())
 require_once __DIR__ . '/../includes/layout.php';

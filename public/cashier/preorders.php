@@ -2,35 +2,71 @@
 require_once __DIR__ . '/../../config/init.php';
 requireRole(ROLE_CASHIER);
 $db = Database::getInstance();
+$currentUser = currentUserId();
+
+// Clear expired locks on page load
+$db->query(
+  "UPDATE orders
+   SET locked_by = NULL, locked_at = NULL, lock_expire_at = NULL
+   WHERE lock_expire_at IS NOT NULL AND lock_expire_at < NOW()"
+);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
   verifyCsrf();
   $oid    = (int)$_POST['order_id'];
   $status = $_POST['new_status'] ?? '';
   $allowed = [STATUS_PREPARING, STATUS_READY, STATUS_CLAIMED, STATUS_CANCELLED];
+
+  // Check if order is locked by another cashier (unless cancelling)
+  if ($status !== STATUS_CANCELLED) {
+    $lock = $db->prepare(
+      "SELECT locked_by, lock_expire_at, c.full_name AS locked_by_name
+       FROM orders o
+       LEFT JOIN cashiers c ON o.locked_by = c.id
+       WHERE o.id = ?"
+    );
+    $lock->execute([$oid]);
+    $lockInfo = $lock->fetch(PDO::FETCH_ASSOC);
+
+    $isExpired = $lockInfo && $lockInfo['lock_expire_at'] && strtotime($lockInfo['lock_expire_at']) < time();
+
+    if ($lockInfo && $lockInfo['locked_by'] && $lockInfo['locked_by'] != $currentUser && !$isExpired) {
+      flash('global', "Order is being prepared by {$lockInfo['locked_by_name']}.", 'warning');
+      redirect(APP_URL . '/cashier/preorders.php');
+    }
+  }
+
   if (in_array($status, $allowed, true)) {
-    $db->prepare("UPDATE orders SET status=?,cashier_id=? WHERE id=?")
-      ->execute([$status, currentUserId(), $oid]);
-    auditLog(ROLE_CASHIER, currentUserId(), "status_{$status}", 'orders', $oid);
+    // Update status and clear lock
+    $db->prepare("UPDATE orders SET status=?,cashier_id=?,locked_by=NULL,locked_at=NULL,lock_expire_at=NULL WHERE id=?")
+      ->execute([$status, $currentUser, $oid]);
+    auditLog(ROLE_CASHIER, $currentUser, "status_{$status}", 'orders', $oid);
     flash('global', "Order updated to: {$status}.", 'success');
   }
   redirect(APP_URL . '/cashier/preorders.php');
 }
 
+// Unlock orders locked by this cashier when they leave the page
+// This is handled via beforeunload event in JS
+
 $orders = $db->query(
   "SELECT o.id, o.order_number, o.status, o.total_amount, o.created_at, o.notes,
+            o.locked_by, o.locked_at, o.lock_expire_at,
             s.full_name AS student_name, s.student_id_no,
             p.payment_method, p.reference_number,
+            c.full_name AS locked_by_name,
             GROUP_CONCAT(CONCAT(od.quantity,'× ',pr.name, IF(od.customization_note IS NOT NULL AND od.customization_note != '', CONCAT(' (',od.customization_note,')'), '')) ORDER BY pr.name SEPARATOR '\n') AS items
      FROM orders o
      JOIN students s ON o.student_id = s.id
      JOIN order_details od ON o.id = od.order_id
      JOIN products pr ON od.product_id = pr.id
      LEFT JOIN payments p ON o.id = p.order_id
+     LEFT JOIN cashiers c ON o.locked_by = c.id
      WHERE o.order_type = 'pre-order'
        AND o.status IN ('pending','preparing','ready')
      GROUP BY o.id, o.order_number, o.status, o.total_amount, o.created_at, o.notes,
-              s.full_name, s.student_id_no, p.payment_method, p.reference_number
+              o.locked_by, o.locked_at, o.lock_expire_at,
+              s.full_name, s.student_id_no, p.payment_method, p.reference_number, c.full_name
      ORDER BY FIELD(o.status,'ready','preparing','pending'), o.created_at ASC"
 )->fetchAll();
 
@@ -315,7 +351,164 @@ layoutHeader('Pre-orders', '');
   .verify-notice strong {
     font-weight: 700;
   }
+
+  /* Locked order indicator */
+  .locked-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--status-pending-bg);
+    border: 1px solid var(--status-pending-border);
+    border-radius: var(--radius-xs);
+    margin-bottom: var(--space-3);
+    font-size: 0.74rem;
+    color: var(--status-pending);
+  }
+  .locked-banner i {
+    font-size: 12px;
+  }
+  .locked-banner strong {
+    font-weight: 600;
+  }
+
+  /* Disabled card state */
+  .order-card.is-locked {
+    opacity: 0.72;
+    pointer-events: none;
+  }
+  .order-card.is-locked .order-card-foot {
+    background: var(--surface-sunken);
+  }
+  .order-card.is-locked .btn {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Locked by me indicator */
+  .locked-by-me {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--status-preparing-bg);
+    border: 1px solid var(--status-preparing-border);
+    border-radius: var(--radius-xs);
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--status-preparing);
+    margin-left: var(--space-2);
+  }
+  .locked-by-me i {
+    font-size: 10px;
+  }
 </style>
+
+<script>
+// Order locking system
+const currentCashierId = <?= $currentUser ?>;
+let lockedOrders = {}; // Track which orders are locked by whom
+
+// Poll for lock updates every 10 seconds
+function pollLockStatus() {
+  fetch('<?= APP_URL ?>/api/order-lock.php?action=list', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success && data.locks) {
+        lockedOrders = {};
+        data.locks.forEach(lock => {
+          lockedOrders[lock.id] = {
+            locked_by: parseInt(lock.locked_by),
+            locked_by_name: lock.locked_by_name,
+            order_number: lock.order_number
+          };
+        });
+        console.log('Locked orders:', lockedOrders); // Debug
+        updateLockIndicators();
+      }
+    })
+    .catch(err => console.error('Failed to poll lock status:', err));
+}
+
+// Update visual indicators for locked orders
+function updateLockIndicators() {
+  document.querySelectorAll('.order-card[data-order-id]').forEach(card => {
+    const orderId = parseInt(card.dataset.orderId);
+    const lockInfo = lockedOrders[orderId];
+    const lockBanner = card.querySelector('.locked-banner:not([data-manual])');
+
+    if (lockInfo && lockInfo.locked_by !== currentCashierId) {
+      // Locked by someone else - show locked state
+      card.classList.add('is-locked');
+      if (!lockBanner) {
+        const banner = document.createElement('div');
+        banner.className = 'locked-banner';
+        banner.innerHTML = `<i class="fa-solid fa-lock"></i><span>Being prepared by <strong>${escapeHtml(lockInfo.locked_by_name)}</strong></span>`;
+        card.querySelector('.order-card-body').prepend(banner);
+      } else {
+        lockBanner.querySelector('strong').textContent = lockInfo.locked_by_name;
+      }
+    } else {
+      // Not locked or locked by current cashier - allow interaction
+      card.classList.remove('is-locked');
+      if (lockBanner) {
+        lockBanner.remove();
+      }
+    }
+  });
+}
+
+// Lock order before action
+async function lockOrder(orderId) {
+  try {
+    const res = await fetch('<?= APP_URL ?>/api/order-lock.php?action=lock', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: `order_id=${orderId}`
+    });
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error('Invalid JSON response:', text);
+      return { success: false, error: 'server_error', message: 'Server returned invalid response' };
+    }
+  } catch (err) {
+    console.error('Lock request failed:', err);
+    return { success: false, error: 'network_error', message: 'Network request failed' };
+  }
+}
+
+// Unlock order
+async function unlockOrder(orderId) {
+  navigator.sendBeacon(
+    '<?= APP_URL ?>/api/order-lock.php?action=unlock',
+    new URLSearchParams({
+      order_id: orderId,
+      csrf_token: document.querySelector('meta[name="csrf-token"]')?.content || ''
+    })
+  );
+}
+
+// Unlock all orders locked by this cashier when page closes
+window.addEventListener('beforeunload', () => {
+  Object.keys(lockedOrders).forEach(orderId => {
+    if (lockedOrders[orderId].locked_by === currentCashierId) {
+      unlockOrder(orderId);
+    }
+  });
+});
+
+// Start polling
+setInterval(pollLockStatus, 10000);
+pollLockStatus(); // Initial load
+</script>
 
 <div class="page-header">
   <div>
@@ -356,13 +549,22 @@ layoutHeader('Pre-orders', '');
   <div class="queue-grid">
     <?php foreach ($orders as $o):
       $pay = $payIcons[$o['payment_method']] ?? $payIcons['online'];
+      $isLockedByOther = !empty($o['locked_by']) && $o['locked_by'] != $currentUser && strtotime($o['lock_expire_at'] ?? '') > time();
+      $isLockedByMe = !empty($o['locked_by']) && $o['locked_by'] == $currentUser;
     ?>
-      <div class="order-card status-<?= e($o['status']) ?>">
+      <div class="order-card status-<?= e($o['status']) ?><?= $isLockedByOther ? ' is-locked' : '' ?>"
+           data-order-id="<?= $o['id'] ?>"
+           data-status="<?= e($o['status']) ?>">
 
         <!-- Header -->
         <div class="order-card-head status-<?= e($o['status']) ?>">
           <div>
-            <div class="order-number"><?= e($o['order_number']) ?></div>
+            <div class="order-number">
+              <?= e($o['order_number']) ?>
+              <?php if ($isLockedByMe): ?>
+                <span class="locked-by-me"><i class="fa-solid fa-user-check"></i> You</span>
+              <?php endif; ?>
+            </div>
             <div class="order-time"><?= date('g:i A · M j', strtotime($o['created_at'])) ?></div>
           </div>
           <span class="badge badge-<?= e($o['status']) ?>"><?= ucfirst(e($o['status'])) ?></span>
@@ -370,6 +572,14 @@ layoutHeader('Pre-orders', '');
 
         <!-- Body -->
         <div class="order-card-body">
+
+          <?php if ($isLockedByOther): ?>
+            <!-- Locked by another cashier (server-side) -->
+            <div class="locked-banner" data-manual="true">
+              <i class="fa-solid fa-lock"></i>
+              <span>Being prepared by <strong><?= e($o['locked_by_name']) ?></strong></span>
+            </div>
+          <?php endif; ?>
 
           <!-- Student -->
           <div class="student-row">
@@ -433,32 +643,28 @@ layoutHeader('Pre-orders', '');
 
         <!-- Actions footer -->
         <div class="order-card-foot">
-          <form method="POST" style="display:flex;gap:var(--space-2);flex:1;flex-wrap:wrap">
+          <form method="POST" style="display:flex;gap:var(--space-2);flex:1;flex-wrap:wrap" id="order-form-<?= $o['id'] ?>">
             <?= csrfField() ?>
             <input type="hidden" name="update_status" value="1">
             <input type="hidden" name="order_id" value="<?= $o['id'] ?>">
 
             <?php if ($o['status'] === STATUS_PENDING): ?>
-              <button name="new_status" value="preparing" class="btn btn-primary btn-sm flex-1"
-                onclick="return confirm('Have you verified the <?= $pay['label'] ?> reference number for order <?= e($o['order_number']) ?>?')">
+              <button type="button" class="btn btn-primary btn-sm flex-1" onclick="handleStartPreparing(<?= $o['id'] ?>, '<?= e($o['order_number']) ?>', '<?= e($pay['label']) ?>')">
                 <i class="fa-solid fa-fire"></i> Start Preparing
               </button>
 
             <?php elseif ($o['status'] === STATUS_PREPARING): ?>
-              <button name="new_status" value="ready" class="btn btn-accent btn-sm flex-1">
+              <button type="button" class="btn btn-accent btn-sm flex-1" onclick="handleMarkReady(<?= $o['id'] ?>, '<?= e($o['order_number']) ?>')">
                 <i class="fa-solid fa-bell"></i> Mark Ready
               </button>
 
             <?php elseif ($o['status'] === STATUS_READY): ?>
-              <button name="new_status" value="claimed" class="btn btn-success btn-sm flex-1"
-                onclick="return confirm('Confirm school ID verified for <?= e($o['student_name']) ?>?')">
+              <button type="button" class="btn btn-success btn-sm flex-1" onclick="handleClaimOrder(<?= $o['id'] ?>, '<?= e($o['student_name']) ?>')">
                 <i class="fa-solid fa-id-card"></i> Claim Order
               </button>
             <?php endif; ?>
 
-            <button name="new_status" value="cancelled" class="btn btn-danger btn-sm"
-              onclick="return confirmDelete('Cancel order <?= e($o['order_number']) ?>? This cannot be undone.')"
-              title="Cancel order">
+            <button type="button" class="btn btn-danger btn-sm" onclick="handleCancelOrder(<?= $o['id'] ?>, '<?= e($o['order_number']) ?>')" title="Cancel order">
               <i class="fa-solid fa-xmark"></i>
             </button>
 
@@ -469,4 +675,115 @@ layoutHeader('Pre-orders', '');
     <?php endforeach; ?>
   </div>
 <?php endif; ?>
+
+<script>
+// Modal-based handlers for order actions
+async function handleStartPreparing(orderId, orderNumber, paymentMethod) {
+  // First try to lock the order
+  const lockRes = await lockOrder(orderId);
+  console.log('Lock result:', lockRes);
+
+  if (!lockRes.success) {
+    if (lockRes.error === 'order_locked') {
+      showLockedOrderModal({ locked_by_name: lockRes.locked_by_name, order_number: orderNumber });
+    } else {
+      alertModal(lockRes.message || 'Could not lock order', { title: 'Error', icon: 'fa-circle-xmark', iconColor: 'danger' });
+    }
+    return;
+  }
+
+  // Show verification modal
+  const confirmed = await confirmModal(
+    `Have you verified the <strong>${paymentMethod}</strong> reference number for order <strong>${orderNumber}</strong>?`,
+    {
+      title: 'Verify Payment',
+      icon: 'fa-shield-check',
+      iconColor: 'warning',
+      confirmText: 'Yes, verified'
+    }
+  );
+
+  if (confirmed) {
+    document.querySelector(`#order-form-${orderId} input[name="new_status"]`)?.remove();
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'new_status';
+    input.value = 'preparing';
+    document.querySelector(`#order-form-${orderId}`).appendChild(input);
+    document.querySelector(`#order-form-${orderId}`).submit();
+  } else {
+    // Unlock the order if cancelled
+    unlockOrder(orderId);
+  }
+}
+
+async function handleMarkReady(orderId, orderNumber) {
+  const confirmed = await confirmModal(
+    `Mark order <strong>${orderNumber}</strong> as ready for pickup?`,
+    {
+      title: 'Mark Ready',
+      icon: 'fa-bell',
+      iconColor: 'info',
+      confirmText: 'Yes, mark ready',
+      confirmClass: 'btn-accent'
+    }
+  );
+
+  if (confirmed) {
+    document.querySelector(`#order-form-${orderId} input[name="new_status"]`)?.remove();
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'new_status';
+    input.value = 'ready';
+    document.querySelector(`#order-form-${orderId}`).appendChild(input);
+    document.querySelector(`#order-form-${orderId}`).submit();
+  }
+}
+
+async function handleClaimOrder(orderId, studentName) {
+  const confirmed = await confirmModal(
+    `Confirm school ID has been verified for <strong>${studentName}</strong>?`,
+    {
+      title: 'Verify ID & Claim',
+      icon: 'fa-id-card',
+      iconColor: 'success',
+      confirmText: 'Yes, ID verified',
+      confirmClass: 'btn-success'
+    }
+  );
+
+  if (confirmed) {
+    document.querySelector(`#order-form-${orderId} input[name="new_status"]`)?.remove();
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'new_status';
+    input.value = 'claimed';
+    document.querySelector(`#order-form-${orderId}`).appendChild(input);
+    document.querySelector(`#order-form-${orderId}`).submit();
+  }
+}
+
+async function handleCancelOrder(orderId, orderNumber) {
+  const confirmed = await confirmModal(
+    `Cancel order <strong>${orderNumber}</strong>? This action cannot be undone.`,
+    {
+      title: 'Cancel Order',
+      icon: 'fa-triangle-exclamation',
+      iconColor: 'danger',
+      confirmText: 'Yes, cancel order',
+      danger: true
+    }
+  );
+
+  if (confirmed) {
+    document.querySelector(`#order-form-${orderId} input[name="new_status"]`)?.remove();
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'new_status';
+    input.value = 'cancelled';
+    document.querySelector(`#order-form-${orderId}`).appendChild(input);
+    document.querySelector(`#order-form-${orderId}`).submit();
+  }
+}
+</script>
 <?php layoutFooter(); ?>

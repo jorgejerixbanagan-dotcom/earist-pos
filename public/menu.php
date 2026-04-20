@@ -134,24 +134,30 @@ $imgBase = APP_URL . '/../uploads/products/';
     }
 
     .nav-logo-icon {
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       background: var(--primary-color);
-      border-radius: 7px;
+      border-radius: var(--radius-full);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
-      color: #fff;
-      box-shadow: 0 4px 12px rgba(192, 57, 43, 0.40);
+      box-shadow: 0 4px 14px rgba(192, 57, 43, 0.45);
       flex-shrink: 0;
+      overflow: hidden;
     }
 
-    .nav-logo-name {
-      font-size: 0.86rem;
+    .nav-logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .nav-logo-text {
+      font-size: 0.88rem;
       font-weight: 700;
       color: var(--land-text);
       letter-spacing: -0.01em;
+      line-height: 1.2;
     }
 
     .nav-logo-sub {
@@ -871,10 +877,9 @@ $imgBase = APP_URL . '/../uploads/products/';
 
   <nav class="nav" id="navbar">
     <a href="<?= APP_URL ?>/landing.php" class="nav-logo">
-      <div class="nav-logo-icon"><i class="fa-solid fa-mug-hot"></i></div>
+      <div class="nav-logo-icon"><img src="../assets/images/logo.png" alt="Logo"></div>
       <div>
-        <div class="nav-logo-name">EARIST Coffee Shop</div>
-        <div class="nav-logo-sub">Cavite Campus</div>
+        <div class="nav-logo-text"><?= APP_NAME ?></div>
       </div>
     </a>
     <div class="nav-actions">

@@ -4,10 +4,10 @@
  * settings.php — User profile settings for all roles
  *
  * Allows users to edit their profile information and change password.
- * Accessible by: Admin, Cashier, Student
+ * Accessible by: Admin, Cashier, Student, Faculty
  */
 require_once __DIR__ . '/../config/init.php';
-requireRole(ROLE_ADMIN, ROLE_CASHIER, ROLE_STUDENT);
+requireRole(ROLE_ADMIN, ROLE_CASHIER, ROLE_STUDENT, ROLE_FACULTY);
 
 $db = Database::getInstance();
 $userId = currentUserId();
@@ -18,6 +18,7 @@ $table = match ($role) {
   ROLE_ADMIN => 'admins',
   ROLE_CASHIER => 'cashiers',
   ROLE_STUDENT => 'students',
+  ROLE_FACULTY => 'faculty',
   default => throw new Exception('Invalid role')
 };
 
@@ -146,8 +147,36 @@ $roleDisplay = match ($role) {
   ROLE_ADMIN => 'Administrator',
   ROLE_CASHIER => 'Cashier',
   ROLE_STUDENT => 'Student',
+  ROLE_FACULTY => 'Faculty',
   default => 'User'
 };
+
+// Handle email verification request for cashiers
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_email'])) {
+  verifyCsrf();
+
+  if ($role === ROLE_CASHIER && !empty($user['email'])) {
+    // Generate and send OTP
+    $otp = generateOtp();
+    storeOtp(ROLE_CASHIER, $userId, $user['email'], $otp, 'verification');
+    $emailResult = sendOtpEmail($user['email'], $otp, 'verification');
+
+    if ($emailResult['success']) {
+      // Store pending verification in session
+      $_SESSION['pending_verification'] = [
+        'user_type' => ROLE_CASHIER,
+        'user_id'   => $userId,
+        'email'     => $user['email'],
+        'purpose'   => 'verification'
+      ];
+      flash('settings', 'Verification code sent to your email.', 'success');
+      redirect(APP_URL . '/verify-email.php');
+    } else {
+      flash('settings', 'Failed to send verification email. Please try again.', 'error');
+    }
+    redirect(APP_URL . '/settings.php');
+  }
+}
 
 layoutHeader('Settings');
 ?>
@@ -341,6 +370,36 @@ layoutHeader('Settings');
                 <label class="form-label" for="course">Course/Program <span style="color: var(--status-cancelled)">*</span></label>
                 <input type="text" id="course" name="course" class="form-control" value="<?= e($user['course'] ?? '') ?>" required maxlength="100" placeholder="e.g., BS Computer Science">
               </div>
+            <?php endif; ?>
+
+            <?php if ($role === ROLE_CASHIER): ?>
+              <!-- Email (cashiers) -->
+              <div class="form-group">
+                <label class="form-label" for="email">Email Address</label>
+                <input type="email" id="email" name="email" class="form-control" value="<?= e($user['email'] ?? '') ?>" maxlength="150" placeholder="your.email@example.com">
+                <div class="form-hint">Optional, used for password recovery</div>
+              </div>
+
+              <!-- Email verification status -->
+              <?php if (!empty($user['email'])): ?>
+                <div class="form-group">
+                  <label class="form-label">Email Status</label>
+                  <div style="display: flex; align-items: center; gap: var(--space-3);">
+                    <?php if (!empty($user['email_verified'])): ?>
+                      <span class="badge badge-paid" style="padding: 6px 12px;"><i class="fa-solid fa-check"></i> Verified</span>
+                    <?php else: ?>
+                      <span class="badge badge-pending" style="padding: 6px 12px;"><i class="fa-solid fa-clock"></i> Not Verified</span>
+                      <form method="POST" action="" style="display: inline;">
+                        <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+                        <input type="hidden" name="verify_email" value="1">
+                        <button type="submit" class="btn btn-sm btn-primary" style="padding: 4px 12px; font-size: 0.75rem;">
+                          <i class="fa-solid fa-envelope-circle-check"></i> Verify Email
+                        </button>
+                      </form>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              <?php endif; ?>
             <?php endif; ?>
 
             <!-- Account Info -->

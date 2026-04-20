@@ -69,7 +69,7 @@ layoutHeader('Order Now', '');
     margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0;
     padding: var(--space-4);
     box-shadow: var(--shadow-sm);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-sm);
   }
 
   /* Single-row navigation: pills left, search right */

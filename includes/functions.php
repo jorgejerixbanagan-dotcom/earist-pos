@@ -171,7 +171,7 @@ function getFlash(string $key): ?array {
 /**
  * showFlash($key)
  *
- * Outputs the flash message as an HTML alert div.
+ * Outputs the flash message as an HTML toast notification.
  * Call this in pages where you want to display feedback.
  */
 function showFlash(string $key): void {
@@ -180,10 +180,22 @@ function showFlash(string $key): void {
 
   $type = e($flash['type']);
   $msg  = e($flash['message']);
-  echo "<div class=\"alert alert-{$type}\">
-            <i class=\"fa-solid fa-circle-info\"></i>
-            <span>{$msg}</span>
-          </div>";
+
+  $icons = [
+    'success' => 'fa-circle-check',
+    'error'   => 'fa-circle-xmark',
+    'warning' => 'fa-triangle-exclamation',
+    'info'    => 'fa-circle-info',
+  ];
+  $icon = $icons[$type] ?? 'fa-circle-info';
+
+  echo "<div class=\"toast toast-{$type}\" role=\"alert\">
+          <i class=\"fa-solid {$icon}\"></i>
+          <span>{$msg}</span>
+          <button class=\"toast-close\" onclick=\"this.parentElement.remove()\">
+            <i class=\"fa-solid fa-xmark\"></i>
+          </button>
+        </div>";
 }
 
 // ---- LOGIN ATTEMPT THROTTLE ----
@@ -271,4 +283,61 @@ function auditLog(
     // Audit log failure should never crash the app — just log silently
     error_log('Audit log failed: ' . $e->getMessage());
   }
+}
+
+// ---- ID VALIDATION ----
+
+/**
+ * validateStudentId($id)
+ *
+ * Validates Student ID format: NNNN-NNNNNL (e.g., 2316-00001C)
+ * Format: 4 digits, hyphen, 5 digits, 1 uppercase letter
+ *
+ * Returns null if valid, error message string if invalid.
+ */
+function validateStudentId(string $id): ?string {
+  $id = trim($id);
+  if (!preg_match('/^\d{4}-\d{5}[A-Z]$/', $id)) {
+    return 'Student ID must be in format: 2316-00001C (4 digits, hyphen, 5 digits, 1 uppercase letter)';
+  }
+  return null; // null means valid
+}
+
+/**
+ * validateFacultyId($id)
+ *
+ * Validates Faculty ID format: YYYY-NNNN (e.g., 2023-0001)
+ * Format: 4 digits, hyphen, 4 digits
+ *
+ * Returns null if valid, error message string if invalid.
+ */
+function validateFacultyId(string $id): ?string {
+  $id = trim($id);
+  if (!preg_match('/^\d{4}-\d{4}$/', $id)) {
+    return 'Faculty ID must be in format: 2023-0001 (4 digits, hyphen, 4 digits)';
+  }
+  return null; // null means valid
+}
+
+/**
+ * maskEmail($email)
+ *
+ * Masks an email address for display: j***n@gmail.com
+ * Used in OTP verification screens.
+ */
+function maskEmail(string $email): string {
+  $parts = explode('@', $email);
+  if (count($parts) !== 2) {
+    return '***@***.***';
+  }
+  $local = $parts[0];
+  $domain = $parts[1];
+
+  if (strlen($local) <= 2) {
+    $masked = $local[0] . '***';
+  } else {
+    $masked = $local[0] . str_repeat('*', strlen($local) - 2) . $local[strlen($local) - 1];
+  }
+
+  return $masked . '@' . $domain;
 }

@@ -8,10 +8,10 @@ $db = Database::getInstance();
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_method']) && $_POST['_method'] === 'DELETE') {
   verifyCsrf();
   $id = (int)$_POST['product_id'];
-  
+
   // **NEW: Delete related order details first**
   $db->prepare("DELETE od FROM order_details od WHERE od.product_id = ?")->execute([$id]);
-  
+
   // Delete the old image file if it exists
   $stmt = $db->prepare("SELECT image_path FROM products WHERE id=?");
   $stmt->execute([$id]);
@@ -131,11 +131,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category_with_pr
 
   $catName = sanitizeString($_POST['category_name'] ?? '');
   $parentId = null;
-  
+
   // Handle parent category selection
   $parentSelection = $_POST['parent_id_select'] ?? '';
   $customParentName = sanitizeString($_POST['custom_parent_name'] ?? '');
-  
+
   if (!empty($parentSelection) && $parentSelection !== 'custom') {
     // User selected an existing category
     $parentId = (int)$parentSelection;
@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category_with_pr
     $stmt = $db->prepare("SELECT id FROM categories WHERE name = ? AND parent_id IS NULL");
     $stmt->execute([$customParentName]);
     $existing = $stmt->fetchColumn();
-    
+
     if ($existing) {
       $parentId = $existing;
     } else {
@@ -178,9 +178,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category_with_pr
   // Now handle products
   $productNames = $_POST['product_name'] ?? [];
   if (empty(array_filter($productNames))) {
-  flash('global', 'Please add at least one product.', 'error');
-  redirect(APP_URL . '/admin/products.php');
-}
+    flash('global', 'Please add at least one product.', 'error');
+    redirect(APP_URL . '/admin/products.php');
+  }
   $productPrices = $_POST['product_price'] ?? [];
   $productDescs = $_POST['product_desc'] ?? [];
   $hasSizesArr = $_POST['product_has_sizes'] ?? [];
@@ -265,33 +265,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_method']) && $_POST[
   $stmt->execute($categoryIds);
   $images = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-foreach ($images as $img) {
-  if ($img && file_exists(UPLOAD_DIR . $img)) {
-    unlink(UPLOAD_DIR . $img);
+  foreach ($images as $img) {
+    if ($img && file_exists(UPLOAD_DIR . $img)) {
+      unlink(UPLOAD_DIR . $img);
+    }
   }
-}
 
-// **NEW: Delete order details FIRST**
-$stmt = $db->prepare("DELETE od FROM order_details od 
+  // **NEW: Delete order details FIRST**
+  $stmt = $db->prepare("DELETE od FROM order_details od 
                       JOIN products p ON od.product_id = p.id 
                       WHERE p.category_id IN ($placeholders)");
-$stmt->execute($categoryIds);
+  $stmt->execute($categoryIds);
 
-// Delete product images
-$stmt = $db->prepare("SELECT image_path FROM products WHERE category_id IN ($placeholders)");
-$stmt->execute($categoryIds);
-$images = $stmt->fetchAll(PDO::FETCH_COLUMN);
-foreach ($images as $img) {
-  if ($img && file_exists(UPLOAD_DIR . $img)) {
-    unlink(UPLOAD_DIR . $img);
+  // Delete product images
+  $stmt = $db->prepare("SELECT image_path FROM products WHERE category_id IN ($placeholders)");
+  $stmt->execute($categoryIds);
+  $images = $stmt->fetchAll(PDO::FETCH_COLUMN);
+  foreach ($images as $img) {
+    if ($img && file_exists(UPLOAD_DIR . $img)) {
+      unlink(UPLOAD_DIR . $img);
+    }
   }
-}
 
-// Now delete products (safe after order details are gone)
-$db->prepare("DELETE FROM products WHERE category_id IN ($placeholders)")->execute($categoryIds);
+  // Now delete products (safe after order details are gone)
+  $db->prepare("DELETE FROM products WHERE category_id IN ($placeholders)")->execute($categoryIds);
 
-// Finally delete categories
-$db->prepare("DELETE FROM categories WHERE id IN ($placeholders)")->execute($categoryIds);
+  // Finally delete categories
+  $db->prepare("DELETE FROM categories WHERE id IN ($placeholders)")->execute($categoryIds);
 
   auditLog(ROLE_ADMIN, currentUserId(), 'delete_category', 'categories', $catId);
   flash('global', 'Category and its contents deleted.', 'success');
@@ -308,7 +308,7 @@ if ($catFilter > 0) {
   $stmt = $db->prepare("SELECT parent_id FROM categories WHERE id = ?");
   $stmt->execute([$catFilter]);
   $category = $stmt->fetch();
-  
+
   if ($category && $category['parent_id'] === null) {
     // This is a parent category - get products from all its children
     $stmt = $db->prepare("SELECT id FROM categories WHERE parent_id = ?");
@@ -375,33 +375,41 @@ layoutHeader('Products');
   .category-delete-card {
     margin-bottom: 1.5rem;
   }
+
   .category-delete-card .card-header {
     gap: var(--space-4);
   }
+
   .category-delete-table th,
   .category-delete-table td {
     padding: 1rem 0.5rem;
     vertical-align: middle;
     border-bottom: 1px solid var(--border-color-light);
   }
+
   .category-delete-table th {
     background: var(--surface-raised);
     font-weight: 600;
     color: var(--text-strong);
   }
+
   .category-delete-table tbody tr:hover {
     background: var(--surface-hover);
   }
+
   .category-parent-row td {
     font-size: 0.95rem;
     border-bottom: 2px solid var(--border-color);
   }
+
   .category-child-row {
     background: var(--surface-raised);
   }
+
   .category-child-row:hover {
     background: var(--surface-hover);
   }
+
   .category-delete-table .btn-danger {
     min-width: 80px;
   }
@@ -498,7 +506,7 @@ layoutHeader('Products');
           </tr>
         <?php else: ?>
           <?php foreach ($catGroups as $group): ?>
-            <?php 
+            <?php
             // Count products in this group and its subcategories
             $groupProductCount = 0;
             $groupChildren = $catsByParent[$group['id']] ?? [];
@@ -547,7 +555,7 @@ layoutHeader('Products');
             </tr>
             <?php if (!empty($groupChildren)): ?>
               <?php foreach ($groupChildren as $sub): ?>
-                <?php 
+                <?php
                 // Count products in this subcategory
                 $subProductCount = 0;
                 $stmt = $db->prepare("SELECT COUNT(*) FROM products WHERE category_id = ?");
@@ -745,14 +753,14 @@ layoutHeader('Products');
             <?php endforeach; ?>
             <option value="custom">+ New Category</option>
           </select>
-          <input type="text" name="custom_parent_name" id="custom-parent-input" class="form-control" 
+          <input type="text" name="custom_parent_name" id="custom-parent-input" class="form-control"
             placeholder="Enter new menu category name..." style="display:none;margin-top:8px">
           <input type="hidden" name="parent_id_hidden" id="parent-id-hidden" value="">
         </div>
 
         <div class="form-group">
           <label class="form-label">Sub Category <span style="color:var(--status-cancelled)">*</span></label>
-          <input type="text" name="category_name" class="form-control" required placeholder="e.g. Coffee, Breakfast, Pasta">
+          <input type="text" name="category_name" class="form-control" placeholder="e.g. Coffee, Breakfast, Pasta">
         </div>
 
         <hr style="margin:20px 0;border:none;border-top:1px solid var(--border-color)">
@@ -843,10 +851,10 @@ layoutHeader('Products');
   }
 
   function handleToggle(el) {
-  if (!confirm("Change product availability?")) {
-    el.checked = !el.checked;
-    return;
-  }
+    if (!confirm("Change product availability?")) {
+      el.checked = !el.checked;
+      return;
+    }
     el.disabled = true;
     el.form.submit();
   }
