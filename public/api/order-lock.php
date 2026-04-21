@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Order Lock API
  * Handles locking/unlocking pre-orders for cashiers
@@ -19,7 +20,9 @@ try {
   require_once __DIR__ . '/../../includes/functions.php';
   require_once __DIR__ . '/../../includes/csrf.php';
 } catch (Throwable $e) {
-  while (ob_get_level() > 0) { ob_end_clean(); }
+  while (ob_get_level() > 0) {
+    ob_end_clean();
+  }
   header('Content-Type: application/json; charset=utf-8');
   echo json_encode(['success' => false, 'error' => 'include_error', 'message' => $e->getMessage()]);
   exit;
@@ -63,7 +66,7 @@ $currentUser = (int) $_SESSION['user_id'];
  */
 function checkOrderLock(PDO $db, int $orderId): array {
   $order = $db->prepare(
-    "SELECT o.locked_by, o.locked_at, o.lock_expire_at, c.full_name AS locked_by_name
+    "SELECT o.locked_by, o.locked_at, o.lock_expire_at, o.status, c.full_name AS locked_by_name
      FROM orders o
      LEFT JOIN cashiers c ON o.locked_by = c.id
      WHERE o.id = ?"
@@ -76,11 +79,12 @@ function checkOrderLock(PDO $db, int $orderId): array {
   }
 
   $isExpired = $row['lock_expire_at'] && strtotime($row['lock_expire_at']) < time();
+  $isProtectedStatus = in_array($row['status'], ['preparing', 'ready'], true);
 
-  // If lock is expired, clear it
-  if ($isExpired && $row['locked_by']) {
+  // Don't auto-clear lock if order is in a protected status
+  if ($isExpired && $row['locked_by'] && !$isProtectedStatus) {
     $db->prepare("UPDATE orders SET locked_by = NULL, locked_at = NULL, lock_expire_at = NULL WHERE id = ?")
-       ->execute([$orderId]);
+      ->execute([$orderId]);
     return ['locked' => false, 'by' => null, 'name' => null, 'expired' => true];
   }
 
@@ -158,36 +162,51 @@ switch ($action) {
     $orderId = (int) ($_POST['order_id'] ?? 0);
     if ($orderId <= 0) jsonOut(['error' => 'Invalid order ID'], 400);
 
-    // Check current lock status
-    $lock = checkOrderLock($db, $orderId);
+    // Fetch order status directly to enforce protected status check
+    $orderRow = $db->prepare("SELECT status, locked_by, lock_expire_at FROM orders WHERE id = ?");
+    $orderRow->execute([$orderId]);
+    $orderInfo = $orderRow->fetch(PDO::FETCH_ASSOC);
 
-    // If locked by someone else (and not expired), reject
-    if ($lock['locked'] && $lock['by'] !== $currentUser) {
+    // Block lock acquisition if order is preparing/ready and owned by someone else
+    if (
+      $orderInfo &&
+      in_array($orderInfo['status'], ['preparing', 'ready'], true) &&
+      !empty($orderInfo['locked_by']) &&
+      (int)$orderInfo['locked_by'] !== $currentUser
+    ) {
+      $lockedByName = $db->prepare("SELECT full_name FROM cashiers WHERE id = ?");
+      $lockedByName->execute([$orderInfo['locked_by']]);
+      $name = $lockedByName->fetchColumn();
       jsonOut([
-        'success' => false,
-        'error' => 'order_locked',
-        'message' => "This order is being prepared by {$lock['name']}",
-        'locked_by_name' => $lock['name']
-      ], 423); // 423 Locked
+        'success'        => false,
+        'error'          => 'order_locked',
+        'message'        => "This order is being handled by {$name}",
+        'locked_by_name' => $name
+      ], 423);
     }
 
-    // Lock the order (15 minute expiry)
+    // Normal lock check for pending orders
+    $lock = checkOrderLock($db, $orderId);
+    if ($lock['locked'] && $lock['by'] !== $currentUser) {
+      jsonOut([
+        'success'        => false,
+        'error'          => 'order_locked',
+        'message'        => "This order is being prepared by {$lock['name']}",
+        'locked_by_name' => $lock['name']
+      ], 423);
+    }
+
+    // Only allow locking pending orders (preparing/ready lock is set by the status update, not here)
     $stmt = $db->prepare(
       "UPDATE orders
-       SET locked_by = ?,
-           locked_at = NOW(),
-           lock_expire_at = DATE_ADD(NOW(), INTERVAL 15 MINUTE)
-       WHERE id = ? AND status IN ('pending', 'preparing')"
+     SET locked_by = ?, locked_at = NOW(), lock_expire_at = DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+     WHERE id = ? AND status IN ('pending', 'preparing')"
     );
     $stmt->execute([$currentUser, $orderId]);
 
     if ($stmt->rowCount() > 0) {
       auditLog(ROLE_CASHIER, $currentUser, 'locked', 'orders', $orderId);
-      jsonOut([
-        'success' => true,
-        'message' => 'Order locked successfully',
-        'lock_expire_at' => date('c', strtotime('+15 minutes'))
-      ]);
+      jsonOut(['success' => true, 'message' => 'Order locked successfully', 'lock_expire_at' => date('c', strtotime('+15 minutes'))]);
     } else {
       jsonOut(['success' => false, 'error' => 'Could not lock order'], 400);
     }
@@ -272,6 +291,7 @@ switch ($action) {
     if ($method !== 'GET') jsonOut(['error' => 'Method not allowed'], 405);
 
     // Get all locked pre-orders with status pending/preparing/ready
+    // Orders in "preparing" status stay locked to the preparing cashier
     $stmt = $db->query(
       "SELECT o.id, o.order_number, o.status, o.locked_by, o.lock_expire_at,
               c.full_name AS locked_by_name
@@ -280,15 +300,17 @@ switch ($action) {
        WHERE o.order_type = 'pre-order'
          AND o.status IN ('pending', 'preparing', 'ready')
          AND o.locked_by IS NOT NULL
-         AND o.lock_expire_at > NOW()"
+         AND (o.lock_expire_at > NOW() OR o.status IN ('preparing', 'ready'))"
     );
     $locks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Clear expired locks
+    // Clear expired locks only for orders NOT in "preparing" status
     $db->query(
       "UPDATE orders
        SET locked_by = NULL, locked_at = NULL, lock_expire_at = NULL
-       WHERE lock_expire_at IS NOT NULL AND lock_expire_at < NOW()"
+       WHERE lock_expire_at IS NOT NULL
+         AND lock_expire_at < NOW()
+         AND status NOT IN ('preparing', 'ready')"
     );
 
     jsonOut([
