@@ -342,14 +342,32 @@ layoutHeader('Settings');
               <input type="text" class="form-control" value="<?= e($roleDisplay) ?>" disabled style="background: var(--surface-raised); cursor: not-allowed;">
             </div>
 
-            <!-- Username/Student ID (read-only) -->
-            <div class="form-group">
-              <label class="form-label">
-                <?= $role === ROLE_STUDENT ? 'Student ID' : 'Username' ?>
-              </label>
-              <input type="text" class="form-control" value="<?= e($user['student_id_no'] ?? $user['username'] ?? '') ?>" disabled style="background: var(--surface-raised); cursor: not-allowed;">
-              <div class="form-hint">This cannot be changed</div>
-            </div>
+            <!-- Account Identifier (read-only) -->
+<div class="form-group">
+  <label class="form-label">
+    <?php if ($role === ROLE_STUDENT): ?>
+      Student ID
+    <?php elseif ($role === ROLE_FACULTY): ?>
+      Faculty ID
+    <?php else: ?>
+      Username
+    <?php endif; ?>
+  </label>
+
+  <input type="text" class="form-control"
+    value="<?php
+      if ($role === ROLE_STUDENT) {
+        echo e($user['student_id_no'] ?? '');
+      } elseif ($role === ROLE_FACULTY) {
+        echo e($user['faculty_id_no'] ?? '');
+      } else {
+        echo e($user['username'] ?? '');
+      }
+    ?>"
+    disabled style="background: var(--surface-raised); cursor: not-allowed;">
+
+  <div class="form-hint">This cannot be changed</div>
+</div>
 
             <!-- Full Name -->
             <div class="form-group">
@@ -371,6 +389,7 @@ layoutHeader('Settings');
                 <input type="text" id="course" name="course" class="form-control" value="<?= e($user['course'] ?? '') ?>" required maxlength="100" placeholder="e.g., BS Computer Science">
               </div>
             <?php endif; ?>
+
 
             <?php if ($role === ROLE_CASHIER): ?>
               <!-- Email (cashiers) -->
