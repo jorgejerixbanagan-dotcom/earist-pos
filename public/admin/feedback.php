@@ -32,12 +32,15 @@ $whereClause = implode(' AND ', $conditions);
 // ── All feedback rows ─────────────────────────────────────────
 try {
   $stmt = $db->prepare(
-    "SELECT f.*, o.order_number, o.order_type,
-            s.full_name AS student_name,
+    "SELECT f.id AS feedback_id, f.rating, f.comment, f.created_at,
+            COALESCE(s.full_name, fa.full_name) AS customer_name,
+            COALESCE(s.student_id_no, fa.faculty_id_no) AS customer_id,
+            o.order_number, o.order_type,
             c.full_name AS cashier_name
      FROM order_feedback f
-     JOIN orders   o ON f.order_id   = o.id
-     JOIN students s ON f.student_id = s.id
+     JOIN orders o ON f.order_id = o.id
+     LEFT JOIN students s ON f.student_id = s.id
+     LEFT JOIN faculty fa ON f.faculty_id = fa.id
      LEFT JOIN cashiers c ON f.cashier_id = c.id
      WHERE $whereClause
      ORDER BY f.created_at DESC
@@ -48,6 +51,7 @@ try {
 } catch (\Throwable $e) {
   $feedbackRows = [];
 }
+
 
 // ── Summary stats ─────────────────────────────────────────────
 try {
@@ -404,7 +408,13 @@ layoutHeader('Feedback');
                   <strong><?= e($fb['order_number']) ?></strong><br>
                   <span class="badge badge-<?= $fb['order_type'] === 'walk-in' ? 'walkin' : 'preorder' ?>"><?= e($fb['order_type']) ?></span>
                 </td>
-                <td><?= e($fb['student_name']) ?></td>
+                <td>
+                  <?= e($fb['customer_name'] ?? '—') ?><br>
+                    <small style="color:var(--text-muted)">
+                  <?= e($fb['customer_id'] ?? '') ?>
+                    </small>
+                </td>
+
                 <td><?= $fb['cashier_name'] ? e($fb['cashier_name']) : '<span class="text-muted">—</span>' ?></td>
                 <td>
                   <div class="star-display">
