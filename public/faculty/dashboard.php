@@ -12,26 +12,49 @@ $faculty = $stmt->fetch();
 
 // Active orders (faculty orders stored with faculty reference)
 // For now, faculty can view their active orders similar to students
-$activeOrders = $db->prepare(
-  "SELECT * FROM orders WHERE student_id = ? AND status IN ('pending','preparing','ready') ORDER BY created_at DESC"
-);
+$activeOrders = $db->prepare("
+  SELECT * FROM orders 
+  WHERE faculty_id = ?
+  AND status IN ('pending','preparing','ready')
+  ORDER BY created_at DESC
+");
 $activeOrders->execute([$uid]);
 $active = $activeOrders->fetchAll();
 
-$stmt = $db->prepare("SELECT COUNT(*) FROM orders WHERE student_id = ? AND status != 'cancelled'");
+$stmt = $db->prepare("
+  SELECT COUNT(*) FROM orders 
+  WHERE faculty_id = ?
+  AND status != 'cancelled'
+");
 $stmt->execute([$uid]);
 $totalOrders = (int)$stmt->fetchColumn();
 
-$stmt = $db->prepare("SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE student_id = ? AND status = 'claimed'");
+$stmt = $db->prepare("
+SELECT COALESCE(SUM(amount_paid),0)
+FROM payments p
+JOIN orders o ON o.id = p.order_id
+WHERE o.faculty_id = ?
+AND p.payment_status = 'paid'
+");
 $stmt->execute([$uid]);
 $totalSpent = (float)$stmt->fetchColumn();
 
-$stmt = $db->prepare("SELECT COUNT(*) FROM orders WHERE student_id = ? AND DATE(created_at) = CURDATE()");
+$stmt = $db->prepare("
+  SELECT COUNT(*) FROM orders 
+  WHERE faculty_id = ?
+  AND DATE(created_at) = CURDATE()
+");
 $stmt->execute([$uid]);
 $todayOrders = (int)$stmt->fetchColumn();
 
 // Status step map
-$stepMap = ['pending' => 1, 'preparing' => 2, 'ready' => 3, 'claimed' => 4];
+$stepMap = [
+  STATUS_PENDING   => 1,
+  STATUS_PREPARING => 2,
+  STATUS_READY     => 3,
+  STATUS_CLAIMED   => 4
+];  
+
 $steps = [
   ['icon' => 'fa-check',        'label' => 'Confirmed'],
   ['icon' => 'fa-peso-sign',    'label' => 'Paid'],
@@ -50,7 +73,7 @@ layoutHeader('Dashboard');
     <div class="page-header-sub"><?= date('l, F j') ?> · <?= e($faculty['full_name'] ?? '') ?> · <?= count($active) > 0 ? count($active) . ' order' . (count($active) !== 1 ? 's' : '') . ' active' : 'No active orders' ?></div>
   </div>
   <div class="page-header-actions">
-    <a href="<?= APP_URL ?>/menu.php" class="btn btn-primary">
+    <a href="<?= APP_URL ?>/faculty/menu.php" class="btn btn-primary">
       <i class="fa-solid fa-utensils"></i> Order Now
     </a>
   </div>
@@ -136,7 +159,7 @@ layoutHeader('Dashboard');
       <i class="fa-solid fa-mug-hot"></i>
       <h3>No active orders</h3>
       <p>Place a pre-order to skip the queue!</p>
-      <a href="<?= APP_URL ?>/menu.php" class="btn btn-primary mt-3">
+      <a href="<?= APP_URL ?>/faculty/menu.php" class="btn btn-primary mt-3">
         <i class="fa-solid fa-utensils"></i> Browse Menu
       </a>
     </div>
