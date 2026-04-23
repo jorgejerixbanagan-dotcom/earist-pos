@@ -8,8 +8,6 @@ require_once __DIR__ . '/../config/init.php';
 
 $db = Database::getInstance();
 
-// Use the existing database View (product_rating_summary) to avoid Cartesian explosions
-// and explicitly SELECT c.parent_id to fix the undefined array key error.
 $products = $db->query(
   "SELECT p.*, c.name AS cat_name, c.id AS cat_id, c.parent_id,
           COALESCE(prs.avg_rating, 0) AS avg_rating,
@@ -22,13 +20,11 @@ $products = $db->query(
    ORDER BY c.sort_order, p.name"
 )->fetchAll();
 
-// Mark top-5 best sellers by total_sold
 $soldCounts = array_column($products, 'total_sold');
 rsort($soldCounts);
 $bestSellerThreshold = $soldCounts[min(4, count($soldCounts) - 1)] ?? 0;
 $categories = $db->query("SELECT * FROM categories WHERE name != 'Add-ons' ORDER BY sort_order")->fetchAll();
 
-// Group products by category for the section layout
 $grouped = [];
 foreach ($products as $p) {
   $grouped[$p['cat_id']]['name']       = $p['cat_name'];
@@ -36,7 +32,6 @@ foreach ($products as $p) {
   $grouped[$p['cat_id']]['products'][] = $p;
 }
 
-// Separate Main/Group Categories from Sub-Categories for the Pills
 $catsByParent = [];
 foreach ($categories as $cat) {
   if ($cat['parent_id']) $catsByParent[$cat['parent_id']][] = $cat;
@@ -58,6 +53,7 @@ $imgBase = APP_URL . '/../uploads/products/';
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="<?= APP_URL ?>/../assets/css/variables.css">
   <style>
+    /* ── Reset ─────────────────────────────────────────────── */
     *,
     *::before,
     *::after {
@@ -66,28 +62,9 @@ $imgBase = APP_URL . '/../uploads/products/';
       padding: 0;
     }
 
-    :root {
-      --land-bg: #faf8f5;
-      --land-surface: #f2ede8;
-      --land-card: #ffffff;
-      --land-border: rgba(107, 62, 38, 0.12);
-      --land-text: #1a1008;
-      --land-muted: rgba(26, 16, 8, 0.50);
-      --land-dim: rgba(26, 16, 8, 0.28);
-    }
-
     html {
       font-size: 16px;
       scroll-behavior: smooth;
-    }
-
-    body {
-      font-family: 'DM Sans', system-ui, sans-serif;
-      background: var(--land-bg);
-      color: var(--land-text);
-      min-height: 100vh;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
     }
 
     a {
@@ -95,6 +72,17 @@ $imgBase = APP_URL . '/../uploads/products/';
       text-decoration: none;
     }
 
+    /* ── Base ──────────────────────────────────────────────── */
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--background-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Noise texture overlay ─────────────────────────────── */
     body::before {
       content: '';
       position: fixed;
@@ -106,6 +94,7 @@ $imgBase = APP_URL . '/../uploads/products/';
       opacity: 0.6;
     }
 
+    /* ── Navbar ────────────────────────────────────────────── */
     .nav {
       position: fixed;
       top: 0;
@@ -116,21 +105,21 @@ $imgBase = APP_URL . '/../uploads/products/';
       display: flex;
       align-items: center;
       justify-content: space-between;
-      transition: background 0.3s, padding 0.3s;
+      transition: background var(--transition-slow), padding var(--transition-slow);
     }
 
     .nav.scrolled {
-      background: rgba(250, 248, 245, 0.94);
+      background: rgba(243, 240, 236, 0.94);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      padding: 12px 48px;
-      border-bottom: 1px solid rgba(107, 62, 38, 0.12);
+      padding: var(--space-3) 48px;
+      border-bottom: 1px solid var(--border-color);
     }
 
     .nav-logo {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: var(--space-3);
     }
 
     .nav-logo-icon {
@@ -141,7 +130,7 @@ $imgBase = APP_URL . '/../uploads/products/';
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 4px 14px rgba(192, 57, 43, 0.45);
+      box-shadow: var(--shadow-primary);
       flex-shrink: 0;
       overflow: hidden;
     }
@@ -155,47 +144,49 @@ $imgBase = APP_URL . '/../uploads/products/';
     .nav-logo-text {
       font-size: 0.88rem;
       font-weight: 700;
-      color: var(--land-text);
+      color: var(--text-color);
       letter-spacing: -0.01em;
       line-height: 1.2;
     }
 
     .nav-logo-sub {
-      font-size: 0.62rem;
-      color: var(--land-muted);
+      font-size: 0.64rem;
+      color: var(--text-muted);
+      font-weight: 400;
+      letter-spacing: 0.04em;
     }
 
     .nav-actions {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: var(--space-2);
     }
 
     .nav-link {
       font-size: 0.80rem;
       font-weight: 500;
-      color: var(--land-muted);
-      padding: 6px 12px;
-      border-radius: 6px;
-      transition: color 0.15s, background 0.15s;
+      color: var(--text-muted);
+      padding: 6px var(--space-3);
+      border-radius: var(--radius-sm);
+      transition: color var(--transition-fast), background var(--transition-fast);
       display: inline-flex;
       align-items: center;
       gap: 7px;
     }
 
     .nav-link:hover {
-      color: var(--land-text);
-      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-color);
+      background: var(--secondary-subtle);
     }
 
     .nav-link.active {
-      color: var(--land-text);
+      color: var(--text-color);
     }
 
     .btn-nav {
       height: 34px;
-      padding: 0 16px;
-      border-radius: 7px;
+      padding: 0 var(--space-4);
+      border-radius: var(--radius-sm);
       font-size: 0.80rem;
       font-weight: 700;
       font-family: inherit;
@@ -208,21 +199,21 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .btn-nav-ghost {
       background: transparent;
-      color: var(--land-text);
-      border: 1.5px solid rgba(255, 255, 255, 0.13);
-      transition: all 0.15s;
+      color: var(--text-color);
+      border: 1.5px solid var(--border-color);
+      transition: all var(--transition-base);
     }
 
     .btn-nav-ghost:hover {
-      background: rgba(107, 62, 38, 0.06);
-      border-color: rgba(255, 255, 255, 0.25);
+      background: var(--secondary-subtle);
+      border-color: var(--border-strong);
     }
 
     .btn-nav-primary {
       background: var(--primary-color);
-      color: #fff;
-      box-shadow: 0 4px 12px rgba(192, 57, 43, 0.38);
-      transition: all 0.15s;
+      color: var(--text-on-primary);
+      box-shadow: var(--shadow-primary);
+      transition: all var(--transition-base);
     }
 
     .btn-nav-primary:hover {
@@ -230,12 +221,13 @@ $imgBase = APP_URL . '/../uploads/products/';
       transform: translateY(-1px);
     }
 
+    /* ── Page Header ───────────────────────────────────────── */
     .page-header {
       padding: 120px 48px 56px;
       text-align: center;
       position: relative;
       overflow: hidden;
-      background: linear-gradient(180deg, rgba(192, 57, 43, 0.04) 0%, transparent 100%);
+      background: linear-gradient(180deg, var(--primary-subtle) 0%, transparent 100%);
     }
 
     .page-header::after {
@@ -246,7 +238,7 @@ $imgBase = APP_URL . '/../uploads/products/';
       transform: translate(-50%, -50%);
       width: 600px;
       height: 400px;
-      background: radial-gradient(ellipse, rgba(192, 57, 43, 0.05) 0%, transparent 70%);
+      background: radial-gradient(ellipse, var(--primary-subtle) 0%, transparent 70%);
       pointer-events: none;
     }
 
@@ -259,16 +251,16 @@ $imgBase = APP_URL . '/../uploads/products/';
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      background: rgba(192, 57, 43, 0.07);
-      border: 1px solid rgba(192, 57, 43, 0.18);
-      border-radius: 99px;
-      padding: 5px 14px;
+      background: var(--primary-subtle);
+      border: 1px solid var(--primary-glow);
+      border-radius: var(--radius-full);
+      padding: 5px var(--space-4);
       font-size: 0.68rem;
       font-weight: 700;
       color: var(--primary-color);
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-bottom: 20px;
+      margin-bottom: var(--space-5);
       animation: fadeUp 0.5s 0.05s both;
     }
 
@@ -282,8 +274,8 @@ $imgBase = APP_URL . '/../uploads/products/';
       font-weight: 400;
       line-height: 1.1;
       letter-spacing: -0.02em;
-      color: var(--land-text);
-      margin-bottom: 16px;
+      color: var(--text-color);
+      margin-bottom: var(--space-4);
       animation: fadeUp 0.6s 0.15s both;
     }
 
@@ -294,7 +286,7 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .page-sub {
       font-size: 0.95rem;
-      color: var(--land-muted);
+      color: var(--text-secondary);
       line-height: 1.7;
       font-weight: 300;
       max-width: 440px;
@@ -302,29 +294,30 @@ $imgBase = APP_URL . '/../uploads/products/';
       animation: fadeUp 0.6s 0.25s both;
     }
 
+    /* ── Filter Bar ────────────────────────────────────────── */
     .filter-bar-wrap {
       position: sticky;
       top: 60px;
       z-index: 50;
-      background: rgba(250, 248, 245, 0.94);
+      background: rgba(243, 240, 236, 0.94);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border-bottom: 1px solid rgba(107, 62, 38, 0.12);
+      border-bottom: 1px solid var(--border-color);
     }
 
     .filter-bar {
-      padding: 14px 48px;
+      padding: var(--space-4) 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: var(--space-4);
       flex-wrap: wrap;
     }
 
     .filter-sub {
-      padding: 10px 48px 14px;
-      background: rgba(107, 62, 38, 0.02);
-      border-top: 1px solid rgba(107, 62, 38, 0.08);
+      padding: var(--space-2) 48px var(--space-4);
+      background: var(--secondary-subtle);
+      border-top: 1px solid var(--border-color);
       display: none;
     }
 
@@ -334,16 +327,16 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .sub-pill {
       height: 28px;
-      padding: 0 14px;
+      padding: 0 var(--space-4);
       font-size: 0.72rem;
-      background: var(--land-surface);
+      background: var(--surface-raised);
       border-color: transparent;
     }
 
     .cat-pills {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: var(--space-1);
       overflow-x: auto;
       scrollbar-width: none;
       flex-wrap: nowrap;
@@ -355,37 +348,37 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .cat-pill {
       height: 32px;
-      padding: 0 16px;
-      border-radius: 99px;
+      padding: 0 var(--space-4);
+      border-radius: var(--radius-full);
       font-size: 0.78rem;
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
-      border: 1.5px solid rgba(107, 62, 38, 0.14);
+      border: 1.5px solid var(--border-color);
       background: transparent;
-      color: var(--land-muted);
+      color: var(--text-muted);
       white-space: nowrap;
-      transition: all 0.15s;
+      transition: all var(--transition-base);
       display: inline-flex;
       align-items: center;
       gap: 7px;
     }
 
     .cat-pill:hover {
-      border-color: rgba(107, 62, 38, 0.30);
-      color: var(--land-text);
+      border-color: var(--border-strong);
+      color: var(--text-color);
     }
 
     .cat-pill.active {
       background: var(--primary-color);
-      color: #fff;
+      color: var(--text-on-primary);
       border-color: var(--primary-color);
-      box-shadow: 0 3px 10px rgba(192, 57, 43, 0.35);
+      box-shadow: var(--shadow-primary);
     }
 
     .cat-pill-count {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 99px;
+      background: var(--secondary-subtle);
+      border-radius: var(--radius-full);
       padding: 1px 7px;
       font-size: 0.65rem;
       font-weight: 700;
@@ -395,6 +388,7 @@ $imgBase = APP_URL . '/../uploads/products/';
       background: rgba(255, 255, 255, 0.25);
     }
 
+    /* ── Search ────────────────────────────────────────────── */
     .search-wrap {
       position: relative;
       flex-shrink: 0;
@@ -402,25 +396,25 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .search-input {
       height: 34px;
-      padding: 0 14px 0 36px;
-      background: rgba(107, 62, 38, 0.04);
-      border: 1.5px solid rgba(107, 62, 38, 0.14);
-      border-radius: 8px;
+      padding: 0 var(--space-4) 0 36px;
+      background: var(--secondary-subtle);
+      border: 1.5px solid var(--border-color);
+      border-radius: var(--radius-sm);
       font-size: 0.80rem;
       font-family: inherit;
-      color: var(--land-text);
+      color: var(--text-color);
       width: 220px;
       outline: none;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color var(--transition-base), background var(--transition-base);
     }
 
     .search-input::placeholder {
-      color: var(--land-dim);
+      color: var(--text-placeholder);
     }
 
     .search-input:focus {
-      border-color: rgba(192, 57, 43, 0.50);
-      background: rgba(107, 62, 38, 0.06);
+      border-color: var(--primary-light);
+      background: var(--surface-sunken);
     }
 
     .search-icon {
@@ -429,10 +423,11 @@ $imgBase = APP_URL . '/../uploads/products/';
       top: 50%;
       transform: translateY(-50%);
       font-size: 11px;
-      color: var(--land-dim);
+      color: var(--text-placeholder);
       pointer-events: none;
     }
 
+    /* ── Content ───────────────────────────────────────────── */
     .content {
       padding: 48px;
       max-width: 1400px;
@@ -443,13 +438,13 @@ $imgBase = APP_URL . '/../uploads/products/';
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 32px;
+      margin-bottom: var(--space-8);
       font-size: 0.78rem;
-      color: var(--land-muted);
+      color: var(--text-muted);
     }
 
     .results-count strong {
-      color: var(--land-text);
+      color: var(--text-color);
     }
 
     .empty-search {
@@ -460,23 +455,24 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .empty-search i {
       font-size: 40px;
-      color: var(--land-dim);
-      margin-bottom: 16px;
+      color: var(--text-placeholder);
+      margin-bottom: var(--space-4);
       display: block;
     }
 
     .empty-search h3 {
       font-size: 1.1rem;
       font-weight: 600;
-      color: var(--land-text);
-      margin-bottom: 8px;
+      color: var(--text-color);
+      margin-bottom: var(--space-2);
     }
 
     .empty-search p {
       font-size: 0.84rem;
-      color: var(--land-muted);
+      color: var(--text-muted);
     }
 
+    /* ── Category Section ──────────────────────────────────── */
     .cat-section {
       margin-bottom: 56px;
     }
@@ -484,14 +480,14 @@ $imgBase = APP_URL . '/../uploads/products/';
     .cat-section-header {
       display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 24px;
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
     }
 
     .cat-section-line {
       flex: 1;
       height: 1px;
-      background: rgba(107, 62, 38, 0.10);
+      background: var(--border-color);
     }
 
     .cat-section-name {
@@ -499,11 +495,11 @@ $imgBase = APP_URL . '/../uploads/products/';
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.12em;
-      color: var(--land-muted);
+      color: var(--text-muted);
       white-space: nowrap;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--space-2);
     }
 
     .cat-section-name i {
@@ -511,27 +507,28 @@ $imgBase = APP_URL . '/../uploads/products/';
       font-size: 10px;
     }
 
+    /* ── Product Grid ──────────────────────────────────────── */
     .product-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-      gap: 16px;
+      gap: var(--space-4);
     }
 
     .menu-card {
-      background: var(--land-card);
-      border: 1px solid rgba(107, 62, 38, 0.10);
-      border-radius: 14px;
+      background: var(--surface-color);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
       overflow: hidden;
-      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      transition: border-color var(--transition-base), transform var(--transition-base), box-shadow var(--transition-base);
       position: relative;
       display: flex;
       flex-direction: column;
     }
 
     .menu-card:hover {
-      border-color: rgba(192, 57, 43, 0.30);
+      border-color: var(--primary-light);
       transform: translateY(-3px);
-      box-shadow: 0 10px 30px rgba(107, 62, 38, 0.14);
+      box-shadow: var(--shadow-lg);
     }
 
     .menu-card.unavailable {
@@ -541,12 +538,12 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .menu-card-img {
       height: 140px;
-      background: #f5ece4;
+      background: var(--surface-sunken);
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      border-bottom: 1px solid rgba(107, 62, 38, 0.12);
+      border-bottom: 1px solid var(--border-color);
       position: relative;
     }
 
@@ -563,34 +560,34 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .menu-card-img-icon {
       font-size: 36px;
-      color: rgba(107, 62, 38, 0.18);
+      color: var(--border-strong);
     }
 
     .unavail-ribbon {
       position: absolute;
-      top: 10px;
+      top: var(--space-2);
       right: -1px;
-      background: rgba(239, 68, 68, 0.85);
-      color: #fff;
+      background: var(--status-cancelled);
+      color: var(--text-on-primary);
       font-size: 0.62rem;
       font-weight: 700;
       padding: 3px 10px 3px 8px;
-      border-radius: 4px 0 0 4px;
+      border-radius: var(--radius-xs) 0 0 var(--radius-xs);
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
 
     .menu-card-cat {
       position: absolute;
-      top: 10px;
-      left: 10px;
+      top: var(--space-2);
+      left: var(--space-2);
       background: rgba(255, 255, 255, 0.82);
       backdrop-filter: blur(6px);
-      color: rgba(26, 16, 8, 0.65);
+      color: var(--text-secondary);
       font-size: 0.60rem;
       font-weight: 700;
       padding: 3px 9px;
-      border-radius: 99px;
+      border-radius: var(--radius-full);
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
@@ -598,31 +595,31 @@ $imgBase = APP_URL . '/../uploads/products/';
     .best-seller-badge {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      background: linear-gradient(135deg, #f59e0b, #d97706);
-      color: #fff;
+      gap: var(--space-1);
+      background: linear-gradient(135deg, var(--accent-color), var(--accent-dark));
+      color: var(--text-on-accent);
       font-size: 0.60rem;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      padding: 2px 8px;
-      border-radius: 99px;
-      margin-bottom: 4px;
+      padding: 2px var(--space-2);
+      border-radius: var(--radius-full);
+      margin-bottom: var(--space-1);
     }
 
     .card-rating-badge {
       font-size: 0.70rem;
       font-weight: 700;
       color: var(--accent-dark);
-      background: rgba(240, 180, 41, 0.15);
-      border-radius: 99px;
+      background: var(--accent-subtle);
+      border-radius: var(--radius-full);
       padding: 2px 7px;
       white-space: nowrap;
       flex-shrink: 0;
     }
 
     .menu-card-body {
-      padding: 16px;
+      padding: var(--space-4);
       flex: 1;
       display: flex;
       flex-direction: column;
@@ -631,7 +628,7 @@ $imgBase = APP_URL . '/../uploads/products/';
     .menu-card-name {
       font-size: 0.88rem;
       font-weight: 700;
-      color: var(--land-text);
+      color: var(--text-color);
       line-height: 1.35;
       margin-bottom: 5px;
       overflow: hidden;
@@ -642,10 +639,10 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .menu-card-desc {
       font-size: 0.74rem;
-      color: var(--land-muted);
+      color: var(--text-muted);
       line-height: 1.55;
       font-weight: 300;
-      margin-bottom: 12px;
+      margin-bottom: var(--space-3);
       flex: 1;
       overflow: hidden;
       display: -webkit-box;
@@ -657,27 +654,28 @@ $imgBase = APP_URL . '/../uploads/products/';
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
+      gap: var(--space-2);
       margin-top: auto;
     }
 
     .menu-card-price {
       font-size: 1.05rem;
       font-weight: 800;
-      color: var(--accent-color);
+      color: var(--accent-dark);
       letter-spacing: -0.01em;
     }
 
+    /* ── CTA Banner ────────────────────────────────────────── */
     .cta-banner {
       margin: 0 48px 56px;
-      background: linear-gradient(135deg, rgba(192, 57, 43, 0.06), rgba(107, 62, 38, 0.04));
-      border: 1px solid rgba(192, 57, 43, 0.22);
-      border-radius: 16px;
-      padding: 32px 40px;
+      background: linear-gradient(135deg, var(--primary-subtle), var(--secondary-subtle));
+      border: 1px solid var(--primary-glow);
+      border-radius: var(--radius-lg);
+      padding: var(--space-8) var(--space-10);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 20px;
+      gap: var(--space-5);
       flex-wrap: wrap;
     }
 
@@ -685,8 +683,8 @@ $imgBase = APP_URL . '/../uploads/products/';
       font-family: 'Instrument Serif', serif;
       font-size: 1.4rem;
       font-weight: 400;
-      color: var(--land-text);
-      margin-bottom: 6px;
+      color: var(--text-color);
+      margin-bottom: var(--space-1);
     }
 
     .cta-banner-text h3 em {
@@ -696,13 +694,13 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .cta-banner-text p {
       font-size: 0.84rem;
-      color: var(--land-muted);
+      color: var(--text-muted);
       font-weight: 300;
     }
 
     .cta-banner-actions {
       display: flex;
-      gap: 10px;
+      gap: var(--space-2);
       flex-shrink: 0;
       flex-wrap: wrap;
     }
@@ -710,19 +708,19 @@ $imgBase = APP_URL . '/../uploads/products/';
     .btn-cta-primary {
       height: 40px;
       padding: 0 22px;
-      border-radius: 9px;
+      border-radius: var(--radius-sm);
       border: none;
       background: var(--primary-color);
-      color: #fff;
+      color: var(--text-on-primary);
       font-size: 0.84rem;
       font-weight: 700;
       font-family: inherit;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 14px rgba(192, 57, 43, 0.40);
-      transition: all 0.15s;
+      gap: var(--space-2);
+      box-shadow: var(--shadow-primary);
+      transition: all var(--transition-base);
       text-decoration: none;
     }
 
@@ -733,63 +731,75 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .btn-cta-ghost {
       height: 40px;
-      padding: 0 20px;
-      border-radius: 9px;
-      border: 1.5px solid rgba(107, 62, 38, 0.20);
+      padding: 0 var(--space-5);
+      border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border-color);
       background: transparent;
-      color: var(--land-text);
+      color: var(--text-color);
       font-size: 0.84rem;
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      transition: all 0.15s;
+      gap: var(--space-2);
+      transition: all var(--transition-base);
       text-decoration: none;
     }
 
     .btn-cta-ghost:hover {
-      background: rgba(107, 62, 38, 0.07);
+      background: var(--secondary-subtle);
     }
 
+    /* ── Footer ────────────────────────────────────────────── */
     .footer {
-      border-top: 1px solid rgba(107, 62, 38, 0.12);
-      padding: 32px 48px;
+      border-top: 1px solid var(--border-color);
+      padding: var(--space-8) 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: var(--space-4);
       flex-wrap: wrap;
     }
 
     .footer-brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: var(--space-2);
     }
 
     .footer-brand-icon {
       width: 28px;
       height: 28px;
       background: var(--primary-color);
-      border-radius: 6px;
+      border-radius: var(--radius-full);
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 11px;
-      color: #fff;
+      color: var(--text-on-primary);
+    }
+
+    .footer-brand-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
 
     .footer-brand-name {
       font-size: 0.80rem;
       font-weight: 600;
-      color: var(--land-text);
+      color: var(--text-color);
+    }
+
+    .footer-brand-sub {
+      font-size: 0.66rem;
+      color: var(--text-muted);
     }
 
     .footer-copy {
       font-size: 0.72rem;
-      color: var(--land-dim);
+      color: var(--text-placeholder);
     }
 
     .footer-links {
@@ -799,14 +809,15 @@ $imgBase = APP_URL . '/../uploads/products/';
 
     .footer-links a {
       font-size: 0.76rem;
-      color: var(--land-muted);
-      transition: color 0.15s;
+      color: var(--text-muted);
+      transition: color var(--transition-fast);
     }
 
     .footer-links a:hover {
-      color: var(--land-text);
+      color: var(--text-color);
     }
 
+    /* ── Animations ────────────────────────────────────────── */
     @keyframes fadeUp {
       from {
         opacity: 0;
@@ -830,32 +841,37 @@ $imgBase = APP_URL . '/../uploads/products/';
       transform: translateY(0);
     }
 
+    /* ── Responsive ────────────────────────────────────────── */
     @media (max-width: 900px) {
 
       .nav,
       .nav.scrolled {
-        padding: 14px 20px;
+        padding: var(--space-4) var(--space-5);
       }
 
       .filter-bar {
-        padding: 12px 20px;
+        padding: var(--space-3) var(--space-5);
+      }
+
+      .filter-sub {
+        padding: var(--space-2) var(--space-5) var(--space-4);
       }
 
       .content {
-        padding: 32px 20px;
+        padding: var(--space-8) var(--space-5);
       }
 
       .cta-banner {
-        margin: 0 20px 40px;
-        padding: 24px;
+        margin: 0 var(--space-5) var(--space-10);
+        padding: var(--space-6);
       }
 
       .page-header {
-        padding: 100px 24px 40px;
+        padding: 100px var(--space-6) var(--space-10);
       }
 
       .footer {
-        padding: 24px 20px;
+        padding: var(--space-6) var(--space-5);
         flex-direction: column;
         align-items: flex-start;
       }
@@ -880,6 +896,7 @@ $imgBase = APP_URL . '/../uploads/products/';
       <div class="nav-logo-icon"><img src="../assets/images/logo.png" alt="Logo"></div>
       <div>
         <div class="nav-logo-text"><?= APP_NAME ?></div>
+        <div class="nav-logo-sub">EARIST Cavite Campus</div>
       </div>
     </a>
     <div class="nav-actions">
@@ -1043,10 +1060,10 @@ $imgBase = APP_URL . '/../uploads/products/';
 
   <footer class="footer">
     <div class="footer-brand">
-      <div class="footer-brand-icon"><i class="fa-solid fa-mug-hot"></i></div>
+      <div class="footer-brand-icon"><img src="../assets/images/logo.png" alt=""></div>
       <div>
-        <div class="footer-brand-name">EARIST Coffee Shop</div>
-        <div style="font-size:.66rem;color:var(--land-dim)">Cavite Campus</div>
+        <div class="footer-brand-name"><?= APP_NAME ?></div>
+        <div class="footer-brand-sub">EARIST Cavite Campus</div>
       </div>
     </div>
     <div class="footer-copy">&copy; <?= date('Y') ?> EARIST Cavite Campus. All rights reserved.</div>
