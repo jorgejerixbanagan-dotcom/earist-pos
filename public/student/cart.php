@@ -5,6 +5,12 @@ $db = Database::getInstance();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
   verifyCsrf();
+  date_default_timezone_set('Asia/Manila');
+  $currentHour = (int)date('G');
+  if ($currentHour < 7 || $currentHour >= 20) {
+    flash('global', 'Orders cannot be placed outside of store hours (7:00 AM – 8:00 PM).', 'error');
+    redirect(APP_URL . '/student/cart.php');
+  }
   $items  = json_decode($_POST['cart_json'] ?? '[]', true);
   $methodRaw = sanitizeString($_POST['payment_method'] ?? '');
   $ref       = sanitizeString($_POST['reference_no'] ?? '', 100);
@@ -13,6 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
   $method = in_array($methodRaw, $onlineMethods, true) ? $methodRaw : PAY_ONLINE;
   $notes  = sanitizeString($_POST['notes'] ?? '', 500);
 
+  $pickupTime = sanitizeString($_POST['pickup_time'] ?? '', 10);
+
   if (empty($items)) {
     flash('global', 'Your cart is empty.', 'error');
     redirect(APP_URL . '/student/cart.php');
@@ -20,6 +28,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
   if (empty($ref)) {
     flash('global', 'Reference number is required.', 'error');
     redirect(APP_URL . '/student/cart.php');
+  }
+  if (empty($pickupTime)) {
+    flash('global', 'Please select a pickup time before placing your order.', 'error');
+    redirect(APP_URL . '/student/cart.php');
+  }
+
+  // Validate pickup time format and range
+  $storeOpen  = strtotime('07:00');
+  $storeClose = strtotime('20:00');
+  $pickupTs   = strtotime($pickupTime);
+  if ($pickupTime !== 'ASAP' && ($pickupTs === false || $pickupTs < $storeOpen || $pickupTs > $storeClose)) {
+    flash('global', 'Invalid pickup time selected.', 'error');
+    redirect(APP_URL . '/student/cart.php');
+  }
+
+  // Check if the chosen slot (non-ASAP) is already taken by a pending/active order
+  if ($pickupTime !== 'ASAP') {
+    try {
+      $slotStmt = $db->prepare("SELECT COUNT(*) FROM orders WHERE pickup_time = ? AND status IN ('pending','preparing','ready') AND student_id != ?");
+      $slotStmt->execute([$pickupTime, currentUserId()]);
+      if ((int)$slotStmt->fetchColumn() > 0) {
+        flash('global', 'That pickup time was just taken. Please choose another slot.', 'error');
+        redirect(APP_URL . '/student/cart.php');
+      }
+    } catch (\Throwable $e) {
+      error_log('pickup_time slot check failed: ' . $e->getMessage());
+    }
   }
 
   $total = 0;
@@ -49,8 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     $db->beginTransaction();
     try {
       $orderNo = generateOrderNumber();
-      $db->prepare("INSERT INTO orders (order_number,order_type,status,student_id,total_amount,notes) VALUES (?,?,?,?,?,?)")
-        ->execute([$orderNo, ORDER_PREORDER, STATUS_PENDING, currentUserId(), $total, $notes]);
+      $db->prepare("INSERT INTO orders (order_number,order_type,status,student_id,total_amount,notes,pickup_time) VALUES (?,?,?,?,?,?,?)")
+        ->execute([$orderNo, ORDER_PREORDER, STATUS_PENDING, currentUserId(), $total, $notes, $pickupTime]);
       $orderId = (int)$db->lastInsertId();
       // customization_note column added by customization_migration.sql
       $stmt = $db->prepare("INSERT INTO order_details (order_id,product_id,quantity,price_at_time,subtotal,customization_note) VALUES (?,?,?,?,?,?)");
@@ -75,6 +110,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
 }
 
 $imgBase  = APP_URL . '/../uploads/products/';
+
+// Fetch already-taken pickup slots (pending / preparing / ready orders)
+// Wrapped in try/catch in case pickup_time column hasn't been migrated yet
+$takenSlots = [];
+try {
+  $takenStmt = $db->query(
+    "SELECT pickup_time FROM orders WHERE pickup_time IS NOT NULL AND pickup_time != 'ASAP' AND status IN ('pending','preparing','ready')"
+  );
+  $takenSlots = $takenStmt->fetchAll(\PDO::FETCH_COLUMN);
+} catch (\Throwable $e) {
+  // Column likely doesn't exist yet — run: ALTER TABLE orders ADD COLUMN pickup_time VARCHAR(10) NULL DEFAULT NULL;
+  error_log('pickup_time column missing: ' . $e->getMessage());
+}
 
 // Load product images for cart thumbnails
 $products = $db->query(
@@ -382,6 +430,72 @@ layoutHeader('My Cart', '');
     color: var(--primary-color);
   }
 
+  /* Pickup time selector */
+  .pickup-section {
+    margin-bottom: var(--space-4);
+  }
+
+  .pickup-label {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-3);
+    display: block;
+  }
+
+  .pickup-select {
+    width: 100%;
+    height: 42px;
+    border: 1.5px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 0 var(--space-3);
+    outline: none;
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+  }
+
+  .pickup-select:focus {
+    border-color: var(--primary-color);
+  }
+
+  .pickup-select.selected {
+    border-color: var(--status-ready);
+  }
+
+  /* Pickup warning notice */
+  .pickup-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    background: #fff8e1;
+    border: 1px solid #f9a825;
+    border-radius: var(--radius-sm);
+    padding: var(--space-3) var(--space-4);
+    margin-top: var(--space-3);
+    font-size: 0.76rem;
+    line-height: 1.55;
+    color: #5d4037;
+  }
+
+  .pickup-warning i {
+    color: #f57f17;
+    font-size: 15px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .pickup-warning strong {
+    display: block;
+    font-size: 0.78rem;
+    margin-bottom: 2px;
+    color: #e65100;
+  }
+
   /* Place order button */
   .place-btn {
     width: 100%;
@@ -512,60 +626,117 @@ layoutHeader('My Cart', '');
         <div class="card-title"><i class="fa-solid fa-money-bill-transfer"></i> Payment</div>
       </div>
       <div class="card-body">
-        <form id="checkout-form" method="POST">
-          <?= csrfField() ?>
-          <input type="hidden" name="place_order" value="1">
-          <input type="hidden" name="cart_json" id="cart-json">
-
-          <!-- Payment method visual tabs -->
-          <div style="font-size:0.76rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-3)">
-            Payment Method
+        <?php
+        date_default_timezone_set('Asia/Manila');
+        $currentHour = (int)date('G');
+        $storeIsOpen = $currentHour >= 7 && $currentHour < 20;
+        ?>
+        <?php if (!$storeIsOpen): ?>
+          <div style="text-align:center;padding:var(--space-6) var(--space-4)">
+            <div style="font-size:36px;margin-bottom:var(--space-4)">🔒</div>
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text-color);margin-bottom:var(--space-3)">
+              We're Closed Right Now
+            </div>
+            <div style="font-size:0.80rem;color:var(--text-muted);line-height:1.6;">
+              Orders can only be placed during store hours:<br>
+              <strong style="color:var(--text-secondary)">7:00 AM – 8:00 PM</strong>
+            </div>
+            <div style="margin-top:var(--space-4);background:#fff8e1;border:1px solid #f9a825;border-radius:var(--radius-sm);padding:var(--space-3) var(--space-4);font-size:0.76rem;color:#5d4037;line-height:1.55;text-align:left">
+              <i class="fa-solid fa-triangle-exclamation" style="color:#f57f17"></i>
+              &nbsp;<strong>Do not send any GCash payment right now.</strong> The store is closed and your payment will not be accepted — you'll just lose your money with nothing to show for it. Wait until the store opens before paying and placing your order.
+            </div>
           </div>
-          <div class="pay-tabs" id="pay-tabs">
-            <label class="pay-tab active">
-              <input type="radio" name="payment_method" value="GCash" checked>
-              <div class="pay-tab-icon" style="color:var(--pay-gcash)"><i class="fa-solid fa-mobile-screen-button"></i></div>
-              <span class="pay-tab-label">GCash</span>
-            </label>
-            <label class="pay-tab">
-              <input type="radio" name="payment_method" value="PayMaya">
-              <div class="pay-tab-icon" style="color:var(--pay-paymaya)"><i class="fa-solid fa-wallet"></i></div>
-              <span class="pay-tab-label">PayMaya</span>
-            </label>
-            <label class="pay-tab">
-              <input type="radio" name="payment_method" value="Online Banking">
-              <div class="pay-tab-icon" style="color:var(--secondary-color)"><i class="fa-solid fa-building-columns"></i></div>
-              <span class="pay-tab-label">Bank</span>
-            </label>
-          </div>
+        <?php else: ?>
+          <form id="checkout-form" method="POST">
+            <?= csrfField() ?>
+            <input type="hidden" name="place_order" value="1">
+            <input type="hidden" name="cart_json" id="cart-json">
 
-          <div class="form-group">
-            <label class="form-label">
-              Reference Number <span class="req">*</span>
-            </label>
-            <input type="text" name="reference_no" id="ref-input" class="form-control"
-              required placeholder="e.g. 09123456789" autocomplete="off"
-              style="font-family:monospace;letter-spacing:0.04em;font-size:0.88rem">
-            <div class="form-hint" id="ref-hint">Enter your GCash reference number</div>
-          </div>
+            <!-- Pickup Time -->
+            <div class="pickup-section">
+              <label class="pickup-label">
+                <i class="fa-solid fa-clock"></i>&nbsp; Pickup Time <span class="req">*</span>
+              </label>
+              <select name="pickup_time" id="pickup-time" class="pickup-select" required>
+                <option value="">— Select pickup time —</option>
+                <?php
+                date_default_timezone_set('Asia/Manila');
+                $now        = time();
+                $openH      = 7;
+                $closeH     = 20;
+                $minAhead   = 50 * 60; // 50 minutes lead time
 
-          <div class="form-group">
-            <label class="form-label">Notes <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
-            <textarea name="notes" class="form-control" rows="2"
-              placeholder="Special instructions, sugar level, etc."></textarea>
-          </div>
+                // Build slots every 30 min from open to close
+                $slotTs = mktime($openH, 0, 0);
+                $closeTs = mktime($closeH, 0, 0);
 
-          <button type="submit" class="place-btn" id="place-btn" disabled>
-            <i class="fa-solid fa-lock"></i>
-            Place Order · <span id="btn-total">₱0.00</span>
-          </button>
+                // ASAP = first slot (always available)
+                $asapLabel = 'ASAP (earliest available)';
+                echo '<option value="ASAP">' . $asapLabel . '</option>';
 
-          <div class="id-reminder">
-            <i class="fa-solid fa-id-card"></i>
-            <div>Bring your <strong>school ID</strong> when claiming your order at the counter.</div>
-          </div>
+                while ($slotTs <= $closeTs) {
+                  $slotStr   = date('H:i', $slotTs);       // e.g. "09:30"
+                  $slotLabel = date('g:i A', $slotTs);     // e.g. "9:30 AM"
+                  $isTaken   = in_array($slotStr, $takenSlots);
+                  $isTooEarly = ($slotTs - $now) < $minAhead;
 
-        </form>
+                  if ($isTaken) {
+                    echo '<option value="' . $slotStr . '" disabled>' . $slotLabel . ' — Unavailable</option>';
+                  } elseif ($isTooEarly) {
+                    // skip past/too-soon slots silently
+                  } else {
+                    echo '<option value="' . $slotStr . '">' . $slotLabel . '</option>';
+                  }
+                  $slotTs += 30 * 60;
+                }
+                ?>
+              </select>
+
+              <div class="pickup-warning" id="pickup-warning" style="display:none">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <div>
+                  <strong>⚠️ Important Notice</strong>
+                  Please pick up your order at your selected time. If you fail to pick up on time, we cannot be held responsible for any changes in product quality — such as iced drinks losing their chill, or hot drinks and food going cold. <strong>By placing this order, you accept full responsibility.</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- GCash payment -->
+            <input type="hidden" name="payment_method" value="GCash">
+            <div style="display:flex;align-items:center;gap:var(--space-3);background:var(--primary-subtle);border:1.5px solid var(--primary-color);border-radius:var(--radius-sm);padding:var(--space-3) var(--space-4);margin-bottom:var(--space-4)">
+              <span style="font-size:20px;color:var(--pay-gcash)"><i class="fa-solid fa-mobile-screen-button"></i></span>
+              <span style="font-size:0.88rem;font-weight:700;color:var(--pay-gcash)">GCash</span>
+              <span style="font-size:0.75rem;color:var(--text-muted);margin-left:auto">Only accepted payment</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                Reference Number <span class="req">*</span>
+              </label>
+              <input type="text" name="reference_no" id="ref-input" class="form-control"
+                required placeholder="e.g. 09123456789" autocomplete="off"
+                style="font-family:monospace;letter-spacing:0.04em;font-size:0.88rem">
+              <div class="form-hint" id="ref-hint">Enter your GCash reference number</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Notes <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+              <textarea name="notes" class="form-control" rows="2"
+                placeholder="Special instructions, sugar level, etc."></textarea>
+            </div>
+
+            <button type="submit" class="place-btn" id="place-btn" disabled>
+              <i class="fa-solid fa-lock"></i>
+              Place Order · <span id="btn-total">₱0.00</span>
+            </button>
+
+            <div class="id-reminder">
+              <i class="fa-solid fa-id-card"></i>
+              <div>Bring your <strong>school ID</strong> when claiming your order at the counter.</div>
+            </div>
+
+          </form>
+        <?php endif; ?>
       </div>
     </div>
 
@@ -618,6 +789,31 @@ layoutHeader('My Cart', '');
     delete cart[key];
     saveCart(cart);
     renderCart();
+  }
+
+  /* ── Pickup time ──────────────────────────────── */
+  const pickupSel = document.getElementById('pickup-time');
+  const pickupWarning = document.getElementById('pickup-warning');
+
+  function updatePlaceBtn() {
+    const cart = getCart();
+    const hasItems = Object.keys(cart).length > 0;
+    const hasPickup = pickupSel && pickupSel.value !== '';
+    const btn = document.getElementById('place-btn');
+    if (btn) btn.disabled = !(hasItems && hasPickup);
+  }
+
+  if (pickupSel) {
+    pickupSel.addEventListener('change', function() {
+      if (this.value) {
+        this.classList.add('selected');
+        if (pickupWarning) pickupWarning.style.display = 'flex';
+      } else {
+        this.classList.remove('selected');
+        if (pickupWarning) pickupWarning.style.display = 'none';
+      }
+      updatePlaceBtn();
+    });
   }
 
   /* ── Render ───────────────────────────────────── */
@@ -702,7 +898,7 @@ layoutHeader('My Cart', '');
     el.innerHTML = '<div style="padding:0">' + html + '</div>';
     setTotals(total);
     document.getElementById('cart-json').value = JSON.stringify(cartArr);
-    document.getElementById('place-btn').disabled = false;
+    updatePlaceBtn();
     document.getElementById('btn-total').textContent = '₱' + total.toFixed(2);
   }
 
@@ -711,18 +907,6 @@ layoutHeader('My Cart', '');
     document.getElementById('order-total').textContent = '₱' + total.toFixed(2);
     document.getElementById('btn-total').textContent = '₱' + total.toFixed(2);
   }
-
-  /* ── Payment tab switching ────────────────────── */
-  const hints = {
-    GCash: 'Enter your GCash reference number',
-    PayMaya: 'Enter your PayMaya reference number',
-    'Online Banking': 'Enter your bank transaction reference'
-  };
-  document.getElementById('pay-tabs').addEventListener('change', e => {
-    document.querySelectorAll('.pay-tab').forEach(t => t.classList.remove('active'));
-    e.target.closest('.pay-tab').classList.add('active');
-    document.getElementById('ref-hint').textContent = hints[e.target.value] || 'Enter your reference number';
-  });
 
   /* ── Submit ───────────────────────────────────── */
   document.getElementById('checkout-form').addEventListener('submit', function() {
@@ -738,5 +922,7 @@ layoutHeader('My Cart', '');
   });
 
   renderCart();
+  // initial button state after pickup listener is set
+  updatePlaceBtn();
 </script>
 <?php layoutFooter(); ?>
