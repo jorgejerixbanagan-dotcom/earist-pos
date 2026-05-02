@@ -67,10 +67,12 @@ function layoutHeader(string $pageTitle = '', string $extraHead = ''): void {
     $nav .= navItem('fa-gear',  'Settings',  $appUrl . '../settings.php',    $pageTitle);
     $nav .= '<div class="nav-section-label">System</div>';
   } elseif ($role === ROLE_CASHIER) {
+    $preorderCount   = pendingPreorderCount();
+    $preorderUrgency = preorderUrgency();
     $nav .= '<div class="nav-section-label">Operations</div>';
     $nav .= navItem('fa-chart-simple', 'Dashboard',   $appUrl . '/cashier/dashboard.php',  $pageTitle);
     $nav .= navItem('fa-store',        'Walk-in POS', $appUrl . '/cashier/walkin.php',      $pageTitle);
-    $nav .= navItem('fa-clock',        'Pre-orders',  $appUrl . '/cashier/preorders.php',   $pageTitle, pendingPreorderCount());
+    $nav .= navItem('fa-clock',        'Pre-orders',  $appUrl . '/cashier/preorders.php',   $pageTitle, $preorderCount, $preorderUrgency);
     $nav .= navItem('fa-clock-rotate-left', 'Order History', $appUrl . '/cashier/orders.php',    $pageTitle);
     $nav .= navItem('fa-gear',  'Settings',  $appUrl . '../settings.php',    $pageTitle);
     $nav .= '<div class="nav-section-label">Session</div>';
@@ -179,6 +181,46 @@ function layoutFooter(string $extraScripts = ''): void {
   echo '</div><!-- /main-wrapper -->' . "\n\n";
   echo '<script src="' . $appUrl . '/../assets/js/sidebar.js"></script>' . "\n";
   echo '<script src="' . $appUrl . '/../assets/js/utils.js"></script>' . "\n";
+
+  // Cashier: silently poll pre-order badge every 30s (no page refresh)
+  if (currentRole() === ROLE_CASHIER) {
+    echo '
+<script>
+(function() {
+  function updatePreorderBadge() {
+    fetch("' . $appUrl . '/api/preorder-badge.php", {
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then(r => r.json())
+    .then(data => {
+      const links = document.querySelectorAll(".nav-item");
+      links.forEach(link => {
+        if (!link.href.includes("preorders.php")) return;
+        let badge = link.querySelector(".nav-badge");
+        if (data.count > 0) {
+          if (!badge) {
+            badge = document.createElement("span");
+            link.appendChild(badge);
+          }
+          badge.textContent = data.count;
+          badge.className = "nav-badge" +
+            (data.urgency === 3 ? " nav-badge--danger" :
+             data.urgency === 2 ? " nav-badge--warning" : "");
+        } else {
+          if (badge) badge.remove();
+        }
+      });
+    })
+    .catch(() => {}); // fail silently — cashier still works normally
+  }
+
+  // Run immediately then every 30s
+  updatePreorderBadge();
+  setInterval(updatePreorderBadge, 30000);
+})();
+</script>' . "\n";
+  }
+
   if ($extraScripts) {
     echo $extraScripts . "\n";
   }
@@ -195,10 +237,20 @@ function navItem(
   string $label,
   string $href,
   string $currentPage = '',
-  int    $badge       = 0
+  int    $badge       = 0,
+  int    $urgency     = 1  // 1=normal, 2=warning, 3=danger
 ): string {
   $active    = ($currentPage === $label) ? ' active' : '';
-  $badgeHtml = ($badge > 0) ? '<span class="nav-badge">' . $badge . '</span>' : '';
+
+  $badgeHtml = '';
+  if ($badge > 0) {
+    $urgencyClass = match ($urgency) {
+      3       => 'nav-badge nav-badge--danger',
+      2       => 'nav-badge nav-badge--warning',
+      default => 'nav-badge',
+    };
+    $badgeHtml = '<span class="' . $urgencyClass . '">' . $badge . '</span>';
+  }
 
   return '<a href="' . $href . '" class="nav-item' . $active . '">'
     . '<i class="fa-solid ' . $icon . '"></i>'
@@ -232,6 +284,58 @@ function pendingPreorderCount(): int {
     );
     $stmt->execute();
     return (int) $stmt->fetchColumn();
+  } catch (Throwable $e) {
+    return 0;
+  }
+}
+
+/**
+ * Returns urgency level for the pre-order sidebar badge:
+ *   0 = no active pre-orders
+ *   1 = has orders but none urgent (green badge)
+ *   2 = at least one order pickup time is within 30 mins (yellow)
+ *   3 = at least one order is overdue / ASAP and still pending (red)
+ */
+function preorderUrgency(): int {
+  try {
+    date_default_timezone_set('Asia/Manila');
+    $db   = Database::getInstance();
+    $stmt = $db->prepare(
+      "SELECT pickup_time, status FROM orders
+        WHERE order_type = 'pre-order'
+          AND status IN ('pending','preparing','ready')"
+    );
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($rows)) return 0;
+
+    $now      = time();
+    $urgency  = 1; // has orders, not urgent yet
+
+    foreach ($rows as $row) {
+      $pt = $row['pickup_time'] ?? '';
+
+      // ASAP orders that are still pending = red
+      if ($pt === 'ASAP' && $row['status'] === 'pending') {
+        return 3;
+      }
+
+      if ($pt && $pt !== 'ASAP') {
+        $pickupTs = strtotime($pt);
+        $diff     = $pickupTs - $now;
+
+        if ($diff <= 0) {
+          // Overdue — red
+          return 3;
+        } elseif ($diff <= 30 * 60) {
+          // Within 30 mins — yellow (keep checking for red)
+          $urgency = max($urgency, 2);
+        }
+      }
+    }
+
+    return $urgency;
   } catch (Throwable $e) {
     return 0;
   }

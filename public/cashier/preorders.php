@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
 $orders = $db->query(
   "SELECT o.id, o.order_number, o.status, o.total_amount, o.created_at, o.notes,
-          o.locked_by, o.locked_at, o.lock_expire_at,
+          o.locked_by, o.locked_at, o.lock_expire_at, o.pickup_time,
           COALESCE(s.full_name, f.full_name) AS customer_name,
           COALESCE(s.student_id_no, f.faculty_id_no) AS customer_id,
           p.payment_method, p.reference_number,
@@ -84,7 +84,11 @@ $orders = $db->query(
    GROUP BY o.id, o.order_number, o.status, o.total_amount, o.created_at, o.notes,
             o.locked_by, o.locked_at, o.lock_expire_at,
             customer_name, customer_id, p.payment_method, p.reference_number, c.full_name
-   ORDER BY FIELD(o.status,'ready','preparing','pending'), o.created_at ASC"
+   ORDER BY
+     FIELD(o.status,'ready','preparing','pending'),
+     CASE WHEN o.pickup_time = 'ASAP' THEN 0 ELSE 1 END ASC,
+     CASE WHEN o.pickup_time IS NULL OR o.pickup_time = 'ASAP' THEN NULL ELSE STR_TO_DATE(o.pickup_time, '%H:%i') END ASC,
+     o.created_at ASC"
 )->fetchAll();
 
 
@@ -392,7 +396,72 @@ layoutHeader('Pre-orders', '');
     font-weight: 600;
   }
 
-  /* Disabled card state */
+  /* Urgency states */
+  .order-card.urgency-warning {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+  }
+
+  .order-card.urgency-danger {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+    animation: pulse-card 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-card {
+
+    0%,
+    100% {
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+    }
+
+    50% {
+      box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.25);
+    }
+  }
+
+  /* Pickup time pill on card */
+  .pickup-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .pickup-pill.normal {
+    background: var(--surface-raised);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+  }
+
+  .pickup-pill.warning {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+  }
+
+  .pickup-pill.danger {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #ef4444;
+  }
+
+  .pickup-pill.asap {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #22c55e;
+  }
+
+  .countdown {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Locked card state */
   .order-card.is-locked {
     opacity: 0.72;
     pointer-events: none;
@@ -590,10 +659,38 @@ layoutHeader('Pre-orders', '');
       $pay = $payIcons[$o['payment_method']] ?? $payIcons['online'];
       $isLockedByOther = !empty($o['locked_by']) && $o['locked_by'] != $currentUser && strtotime($o['lock_expire_at'] ?? '') > time();
       $isLockedByMe = !empty($o['locked_by']) && $o['locked_by'] == $currentUser;
+
+      // Per-card urgency
+      date_default_timezone_set('Asia/Manila');
+      $pt          = $o['pickup_time'] ?? '';
+      $cardUrgency = '';
+      $pillClass   = 'normal';
+      $pillLabel   = '';
+      $pillIcon    = 'fa-clock';
+      if ($pt === 'ASAP') {
+        $cardUrgency = ($o['status'] === 'pending') ? 'urgency-danger' : '';
+        $pillClass   = 'asap';
+        $pillLabel   = 'ASAP';
+        $pillIcon    = 'fa-bolt';
+      } elseif ($pt) {
+        $pickupTs  = strtotime($pt);
+        $diff      = $pickupTs - time();
+        $pillLabel = date('g:i A', $pickupTs);
+        if ($diff <= 0) {
+          $cardUrgency = 'urgency-danger';
+          $pillClass   = 'danger';
+          $pillIcon    = 'fa-triangle-exclamation';
+        } elseif ($diff <= 30 * 60) {
+          $cardUrgency = 'urgency-warning';
+          $pillClass   = 'warning';
+          $pillIcon    = 'fa-hourglass-half';
+        }
+      }
     ?>
-      <div class="order-card status-<?= e($o['status']) ?><?= $isLockedByOther ? ' is-locked' : '' ?>"
+      <div class="order-card status-<?= e($o['status']) ?><?= $isLockedByOther ? ' is-locked' : '' ?> <?= $cardUrgency ?>"
         data-order-id="<?= $o['id'] ?>"
-        data-status="<?= e($o['status']) ?>">
+        data-status="<?= e($o['status']) ?>"
+        data-pickup="<?= e($pt) ?>">
 
         <!-- Header -->
         <div class="order-card-head status-<?= e($o['status']) ?>">
@@ -606,7 +703,15 @@ layoutHeader('Pre-orders', '');
             </div>
             <div class="order-time"><?= date('g:i A · M j', strtotime($o['created_at'])) ?></div>
           </div>
-          <span class="badge badge-<?= e($o['status']) ?>"><?= ucfirst(e($o['status'])) ?></span>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <span class="badge badge-<?= e($o['status']) ?>"><?= ucfirst(e($o['status'])) ?></span>
+            <?php if ($pillLabel): ?>
+              <span class="pickup-pill <?= $pillClass ?>" data-countdown="<?= $pt !== 'ASAP' ? e($pt) : '' ?>">
+                <i class="fa-solid <?= $pillIcon ?>"></i>
+                <span class="countdown"><?= $pillLabel ?></span>
+              </span>
+            <?php endif; ?>
+          </div>
         </div>
 
         <!-- Body -->
@@ -622,13 +727,13 @@ layoutHeader('Pre-orders', '');
 
           <!-- Customer -->
           <div class="customer-row">
-             <div class="customer-avatar"><i class="fa-solid fa-id-card"></i></div>
-          <div>
-             <div class="customer-name"><?= e($o['customer_name']) ?></div>
+            <div class="customer-avatar"><i class="fa-solid fa-id-card"></i></div>
+            <div>
+              <div class="customer-name"><?= e($o['customer_name']) ?></div>
               <div class="customer-id"><?= e($o['customer_id']) ?></div>
             </div>
           </div>
-          
+
           <!-- Items -->
           <div class="items-box">
             <?php foreach (explode("\n", $o['items']) as $line): ?>
@@ -698,11 +803,11 @@ layoutHeader('Pre-orders', '');
               </button>
 
             <?php elseif ($o['status'] === STATUS_READY): ?>
-  <button type="button" class="btn btn-success btn-sm flex-1"
-    onclick="handleClaimOrder(<?= $o['id'] ?>, '<?= e($o['customer_name']) ?>')">
-    <i class="fa-solid fa-id-card"></i> Claim Order
-  </button>
-<?php endif; ?>
+              <button type="button" class="btn btn-success btn-sm flex-1"
+                onclick="handleClaimOrder(<?= $o['id'] ?>, '<?= e($o['customer_name']) ?>')">
+                <i class="fa-solid fa-id-card"></i> Claim Order
+              </button>
+            <?php endif; ?>
 
 
             <button type="button" class="btn btn-danger btn-sm" onclick="handleCancelOrder(<?= $o['id'] ?>, '<?= e($o['order_number']) ?>')" title="Cancel order">
@@ -856,5 +961,68 @@ layoutHeader('Pre-orders', '');
       document.querySelector(`#order-form-${orderId}`).submit();
     }
   }
+
+  /* ── Live countdown on pickup pills ──────────────── */
+  function updateCountdowns() {
+    document.querySelectorAll('.pickup-pill[data-countdown]').forEach(pill => {
+      const timeStr = pill.dataset.countdown;
+      if (!timeStr) return;
+
+      const now = new Date();
+      const [h, m] = timeStr.split(':').map(Number);
+      const target = new Date();
+      target.setHours(h, m, 0, 0);
+      const diff = Math.floor((target - now) / 1000); // seconds
+
+      const card = pill.closest('.order-card');
+      const label = pill.querySelector('.countdown');
+      const icon = pill.querySelector('i');
+
+      if (diff <= 0) {
+        // Overdue
+        const abs = Math.abs(diff);
+        const mm = String(Math.floor(abs / 60)).padStart(2, '0');
+        const ss = String(abs % 60).padStart(2, '0');
+        label.textContent = `${mm}:${ss} overdue`;
+        pill.className = 'pickup-pill danger';
+        icon.className = 'fa-solid fa-triangle-exclamation';
+        card?.classList.remove('urgency-warning');
+        card?.classList.add('urgency-danger');
+      } else if (diff <= 30 * 60) {
+        // Urgent — show countdown
+        const mm = String(Math.floor(diff / 60)).padStart(2, '0');
+        const ss = String(diff % 60).padStart(2, '0');
+        label.textContent = `${mm}:${ss} left`;
+        pill.className = 'pickup-pill warning';
+        icon.className = 'fa-solid fa-hourglass-half';
+        card?.classList.add('urgency-warning');
+        card?.classList.remove('urgency-danger');
+      } else {
+        // Normal — show formatted time
+        label.textContent = target.toLocaleTimeString('en-PH', {
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+        pill.className = 'pickup-pill normal';
+        icon.className = 'fa-solid fa-clock';
+        card?.classList.remove('urgency-warning', 'urgency-danger');
+      }
+    });
+  }
+
+  // Tick every second for countdown accuracy
+  setInterval(updateCountdowns, 1000);
+  updateCountdowns();
+
+  /* ── Auto-refresh (safe here, no active inputs) ── */
+  let refreshTimer = setTimeout(() => location.reload(), 45000);
+
+  // Reset the timer on any button click so we don't refresh mid-action
+  document.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => location.reload(), 45000);
+    });
+  });
 </script>
 <?php layoutFooter(); ?>
