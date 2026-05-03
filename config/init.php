@@ -44,3 +44,8 @@ require_once __DIR__ . '/../includes/otp.php';
 
 // 10. Layout helpers (layoutHeader(), layoutFooter(), navItem())
 require_once __DIR__ . '/../includes/layout.php';
+
+define('APP_KEY', 'your-secret-key-here'); // any random string
+
+
+
